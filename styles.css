@@ -1,0 +1,595 @@
+/* ============================================================
+   Напоминалка — дизайн-система
+   Правило: цвет означает смысл, а не украшение.
+   ============================================================ */
+
+/* ---------- Токены ---------- */
+
+:root {
+  color-scheme: light;
+
+  --bg:            #F9F9F7;
+  --card:          #FCFCFB;
+  --ink:           #0B0B0B;
+  --ink-2:         #52514E;
+  --ink-muted:     #898781;
+  --line:          #E1E0D9;
+  --ring:          rgba(11, 11, 11, .10);
+
+  --accent:        #0F6B66;
+  --accent-ink:    #FFFFFF;
+  --accent-wash:   rgba(15, 107, 102, .08);
+
+  --good:          #0CA30C;
+  --warning:       #FAB219;
+  --serious:       #EC835A;
+  --critical:      #D03B3B;
+
+  --r-card:        16px;
+  --r-sm:          10px;
+  --pad:           20px;
+
+  --shadow-soft:   0 1px 2px rgba(11, 11, 11, .04), 0 8px 24px rgba(11, 11, 11, .05);
+  --shadow-pop:    0 2px 8px rgba(11, 11, 11, .08), 0 16px 48px rgba(11, 11, 11, .12);
+
+  --ease-spring:   cubic-bezier(.22, 1.4, .36, 1);
+  --ease-out:      cubic-bezier(.2, .8, .3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg:          #0D0D0D;
+    --card:        #1A1A19;
+    --ink:         #FFFFFF;
+    --ink-2:       #C3C2B7;
+    --ink-muted:   #898781;
+    --line:        #2C2C2A;
+    --ring:        rgba(255, 255, 255, .10);
+    --accent:      #4FB8AE;
+    --accent-ink:  #0D0D0D;
+    --accent-wash: rgba(79, 184, 174, .12);
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, .5);
+    --shadow-pop:  0 2px 8px rgba(0, 0, 0, .5), 0 16px 48px rgba(0, 0, 0, .6);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:          #0D0D0D;
+  --card:        #1A1A19;
+  --ink:         #FFFFFF;
+  --ink-2:       #C3C2B7;
+  --ink-muted:   #898781;
+  --line:        #2C2C2A;
+  --ring:        rgba(255, 255, 255, .10);
+  --accent:      #4FB8AE;
+  --accent-ink:  #0D0D0D;
+  --accent-wash: rgba(79, 184, 174, .12);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, .5);
+  --shadow-pop:  0 2px 8px rgba(0, 0, 0, .5), 0 16px 48px rgba(0, 0, 0, .6);
+}
+
+/* ---------- База ---------- */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 17px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+  transition: background .25s var(--ease-out), color .25s var(--ease-out);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Ничего не должно дёргаться при отрисовке */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Каркас ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-width: 560px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.screen {
+  flex: 1;
+  padding: 0 var(--pad) 120px;
+  animation: screen-in .28s var(--ease-out);
+}
+
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---------- Шапка ---------- */
+
+.head {
+  padding: 28px 0 20px;
+}
+
+.head__title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+}
+
+.head__sub {
+  margin: 4px 0 0;
+  font-size: 15px;
+  color: var(--ink-muted);
+}
+
+.head__count {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.head__count b {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ---------- Лента дня ---------- */
+
+.timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* вертикальная нить, проходящая через кружки */
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  background: var(--line);
+  border-radius: 1px;
+}
+
+.task {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 16px;
+  padding: 9px 0;
+}
+
+/* кружок-галочка */
+.task__check {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  display: grid;
+  place-items: center;
+  transition: transform .22s var(--ease-spring),
+              border-color .22s var(--ease-out),
+              background .22s var(--ease-out);
+}
+
+.task__check:active { transform: scale(.86); }
+
+.task__check svg {
+  width: 13px; height: 13px;
+  stroke: var(--accent-ink);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  transition: stroke-dashoffset .25s var(--ease-out) .05s;
+}
+
+.task--done .task__check {
+  background: var(--good);
+  border-color: var(--good);
+}
+
+.task--done .task__check svg { stroke-dashoffset: 0; }
+
+/* тело задачи */
+.task__body {
+  padding: 2px 0 10px;
+  border-bottom: 1px solid var(--line);
+  transition: opacity .25s var(--ease-out);
+}
+
+/* у последней задачи линия не нужна */
+.timeline li:last-child .task__body { border-bottom: 0; }
+
+.task__time {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+}
+
+.task__title {
+  margin-top: 1px;
+  font-size: 17px;
+  font-weight: 500;
+  transition: color .25s var(--ease-out);
+}
+
+.task__note {
+  margin-top: 2px;
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+
+.task--done .task__title {
+  color: var(--ink-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--line);
+}
+
+.task--done .task__time,
+.task--done .task__note { opacity: .55; }
+
+.task--next .task__time { color: var(--accent); }
+
+/* отметка «сейчас» */
+.now-line {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 8px 40px;
+  margin: 2px 0;
+}
+
+.now-line__bar {
+  position: absolute;
+  left: 11px; right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: now-in .7s var(--ease-out) .15s forwards;
+}
+
+@keyframes now-in { to { transform: scaleX(1); } }
+
+.now-line__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--bg);
+  padding-left: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* разделитель перед выполнеными */
+.timeline__sep {
+  margin: 20px 0 2px 40px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* ---------- Пустое состояние ---------- */
+
+.empty {
+  padding: 56px 8px;
+  text-align: center;
+}
+
+.empty__mark {
+  width: 56px; height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  display: grid;
+  place-items: center;
+}
+
+.empty__mark svg {
+  width: 26px; height: 26px;
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.empty__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.empty__text {
+  margin: 6px auto 0;
+  max-width: 280px;
+  font-size: 15px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+/* ---------- Кнопка добавления ---------- */
+
+.add-bar {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: 72px;
+  padding: 0 var(--pad) 12px;
+  max-width: 560px;
+  margin: 0 auto;
+  pointer-events: none;
+}
+
+.add-btn {
+  pointer-events: auto;
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 17px;
+  font-weight: 600;
+  box-shadow: var(--shadow-pop);
+  transition: transform .2s var(--ease-spring), opacity .2s var(--ease-out);
+}
+
+.add-btn:active { transform: scale(.97); }
+
+.add-btn svg {
+  width: 20px; height: 20px;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* ---------- Нижняя панель ---------- */
+
+.nav {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-width: 560px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.nav__item {
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+  transition: color .2s var(--ease-out);
+}
+
+.nav__item svg {
+  width: 23px; height: 23px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .3s var(--ease-spring);
+}
+
+.nav__item--active { color: var(--accent); }
+.nav__item--active svg { transform: translateY(-1px) scale(1.06); }
+
+/* ---------- Заглушка для будущих экранов ---------- */
+
+.soon {
+  padding: 72px 8px;
+  text-align: center;
+}
+
+.soon__title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.soon__text {
+  margin: 0 auto;
+  max-width: 300px;
+  font-size: 15px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.soon__stage {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------- Лист добавления ---------- */
+
+.sheet-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s var(--ease-out);
+  z-index: 20;
+}
+
+.sheet-back--on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 21;
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--card);
+  border-radius: 24px 24px 0 0;
+  padding: 8px var(--pad) calc(24px + env(safe-area-inset-bottom, 0));
+  transform: translateY(102%);
+  transition: transform .34s var(--ease-spring);
+  box-shadow: var(--shadow-pop);
+}
+
+.sheet--on { transform: none; }
+
+.sheet__grip {
+  width: 38px; height: 4px;
+  margin: 0 auto 16px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.sheet__title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.field {
+  margin-bottom: 14px;
+}
+
+.field__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  letter-spacing: .02em;
+}
+
+.field__input {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: 17px;
+  outline: none;
+  transition: border-color .2s var(--ease-out), box-shadow .2s var(--ease-out);
+}
+
+.field__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+.sheet__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.btn {
+  flex: 1;
+  min-height: 50px;
+  border-radius: var(--r-sm);
+  font-size: 17px;
+  font-weight: 600;
+  transition: transform .18s var(--ease-spring), opacity .18s var(--ease-out);
+}
+
+.btn:active { transform: scale(.97); }
+
+.btn--primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.btn--ghost {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+/* ---------- Уважение к «уменьшить движение» ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+  .now-line__bar { transform: scaleX(1); }
+}

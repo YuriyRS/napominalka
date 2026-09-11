@@ -1,0 +1,10 @@
+# зависимости
+node_modules/
+
+# служебное
+*.log
+.DS_Store
+Thumbs.db
+
+# личные бэкапы задач
+*.backup.json
