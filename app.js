@@ -40,14 +40,23 @@ const deeds = (n) => `${n} ${plural(n, 'дело', 'дела', 'дел')}`;
 
 /* ---------- Состояние ---------- */
 
-const state = { tab: 'today', tasks: [], theme: localStorage.getItem('theme') || 'auto' };
+const state = {
+  tab: 'today',
+  tasks: [],
+  theme: localStorage.getItem('theme') || 'auto',
+  accent: localStorage.getItem('accent') || 'violet',
+};
 
-/* ---------- Тема ---------- */
+/* ---------- Оформление ---------- */
 
-function applyTheme() {
+const ACCENTS = ['violet', 'blue', 'teal', 'emerald'];
+
+function applyAppearance() {
   const el = document.documentElement;
   if (state.theme === 'auto') el.removeAttribute('data-theme');
   else el.setAttribute('data-theme', state.theme);
+  if (state.accent === 'violet') el.removeAttribute('data-accent');
+  else el.setAttribute('data-accent', state.accent);
 }
 
 /* ---------- Отрисовка ---------- */
@@ -123,7 +132,10 @@ function renderToday() {
   const done   = todays.filter((t) => t.done);
   const nextId = active.find((t) => t.at >= now.getTime())?.id ?? null;
 
-  const dateStr = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  // «суббота, 12 сентября» — поднимаем только первую букву,
+  // месяц в русском остаётся строчным
+  const raw = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dateStr = raw.charAt(0).toUpperCase() + raw.slice(1);
 
   const subText = todays.length === 0
     ? 'Пока пусто'
@@ -229,7 +241,7 @@ function openAdd() {
 function openSettings() {
   setBack.classList.add('sheet-back--on');
   setSheet.classList.add('sheet--on');
-  syncThemeButtons();
+  syncSettings();
 }
 
 function closeSheets() {
@@ -244,9 +256,12 @@ function defaultTime() {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function syncThemeButtons() {
+function syncSettings() {
   for (const b of setSheet.querySelectorAll('[data-theme-set]')) {
     b.setAttribute('aria-pressed', String(b.dataset.themeSet === state.theme));
+  }
+  for (const b of setSheet.querySelectorAll('[data-accent-set]')) {
+    b.setAttribute('aria-pressed', String(b.dataset.accentSet === state.accent));
   }
 }
 
@@ -333,8 +348,17 @@ for (const b of document.querySelectorAll('[data-theme-set]')) {
   b.addEventListener('click', () => {
     state.theme = b.dataset.themeSet;
     localStorage.setItem('theme', state.theme);
-    applyTheme();
-    syncThemeButtons();
+    applyAppearance();
+    syncSettings();
+  });
+}
+
+for (const b of document.querySelectorAll('[data-accent-set]')) {
+  b.addEventListener('click', () => {
+    state.accent = b.dataset.accentSet;
+    localStorage.setItem('accent', state.accent);
+    applyAppearance();
+    syncSettings();
   });
 }
 
@@ -365,7 +389,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet
 
 /* ---------- Старт ---------- */
 
-applyTheme();
+applyAppearance();
 refresh();
 
 // если приложение открыто через полночь — обновляем

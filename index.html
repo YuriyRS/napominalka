@@ -66,15 +66,28 @@
   <div class="sheet__grip"></div>
   <h2 class="sheet__title" id="settings-title">Настройки</h2>
 
-  <div class="opt">
+  <div class="opt opt--stack">
     <div>
       <div class="opt__name">Оформление</div>
       <div class="opt__hint">Как в телефоне, светлое или тёмное</div>
     </div>
     <div class="seg" role="group" aria-label="Оформление">
       <button type="button" data-theme-set="auto"  aria-pressed="true">Авто</button>
-      <button type="button" data-theme-set="light" aria-pressed="false">Свет</button>
-      <button type="button" data-theme-set="dark"  aria-pressed="false">Тьма</button>
+      <button type="button" data-theme-set="light" aria-pressed="false">Светлая</button>
+      <button type="button" data-theme-set="dark"  aria-pressed="false">Тёмная</button>
+    </div>
+  </div>
+
+  <div class="opt opt--stack">
+    <div>
+      <div class="opt__name">Цвет</div>
+      <div class="opt__hint">Кнопки, кольцо и выделения</div>
+    </div>
+    <div class="swatches" role="group" aria-label="Цвет акцента">
+      <button type="button" data-accent-set="violet"  style="--sw:#5A28E0" aria-label="Фиолетовый"   aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+      <button type="button" data-accent-set="blue"    style="--sw:#1E40AF" aria-label="Синий"        aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+      <button type="button" data-accent-set="teal"    style="--sw:#0F6B66" aria-label="Петроль"      aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+      <button type="button" data-accent-set="emerald" style="--sw:#0B6B4F" aria-label="Изумрудный"   aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
     </div>
   </div>
 
@@ -83,7 +96,7 @@
       <div class="opt__name">Сохранить копию</div>
       <div class="opt__hint">Файл со всеми задачами. На случай, если телефон потеряется</div>
     </div>
-    <button class="btn btn--ghost" style="flex:0 0 auto;min-height:44px;padding:0 16px" type="button" data-act="export">Сохранить</button>
+    <button class="btn btn--ghost btn--mini" type="button" data-act="export">Сохранить</button>
   </div>
 
   <div class="opt">
@@ -91,7 +104,7 @@
       <div class="opt__name">Загрузить копию</div>
       <div class="opt__hint">Заменит текущие задачи тем, что в файле</div>
     </div>
-    <button class="btn btn--ghost" style="flex:0 0 auto;min-height:44px;padding:0 16px" type="button" data-act="import">Загрузить</button>
+    <button class="btn btn--ghost btn--mini" type="button" data-act="import">Загрузить</button>
   </div>
 
   <div class="sheet__actions">
