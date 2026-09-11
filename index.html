@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Напоминалка</title>
 
-<meta name="theme-color" content="#F9F9F7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0D0D0D" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F4F2EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#08070C" media="(prefers-color-scheme: dark)">
 <meta name="description" content="Семейная напоминалка. Всё, что нужно не забыть.">
 
 <link rel="manifest" href="manifest.json">
@@ -27,8 +27,11 @@
 
 <nav class="nav" id="nav" aria-label="Разделы"></nav>
 
+<!-- затемнение под листами -->
 <div class="sheet-back" id="sheet-back"></div>
+<div class="sheet-back" id="settings-back"></div>
 
+<!-- лист: новое дело -->
 <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
   <div class="sheet__grip"></div>
   <h2 class="sheet__title" id="sheet-title">Новое дело</h2>
@@ -41,7 +44,7 @@
     </div>
 
     <div class="field">
-      <label class="field__label" for="f-note">Заметка <span style="font-weight:400">— не обязательно</span></label>
+      <label class="field__label" for="f-note">Заметка <span>— не обязательно</span></label>
       <input class="field__input" id="f-note" name="note" type="text"
              placeholder="в Пятёрочке у дома" maxlength="160">
     </div>
@@ -56,6 +59,46 @@
       <button class="btn btn--primary" type="submit">Добавить</button>
     </div>
   </form>
+</section>
+
+<!-- лист: настройки -->
+<section class="sheet" id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <div class="sheet__grip"></div>
+  <h2 class="sheet__title" id="settings-title">Настройки</h2>
+
+  <div class="opt">
+    <div>
+      <div class="opt__name">Оформление</div>
+      <div class="opt__hint">Как в телефоне, светлое или тёмное</div>
+    </div>
+    <div class="seg" role="group" aria-label="Оформление">
+      <button type="button" data-theme-set="auto"  aria-pressed="true">Авто</button>
+      <button type="button" data-theme-set="light" aria-pressed="false">Свет</button>
+      <button type="button" data-theme-set="dark"  aria-pressed="false">Тьма</button>
+    </div>
+  </div>
+
+  <div class="opt">
+    <div>
+      <div class="opt__name">Сохранить копию</div>
+      <div class="opt__hint">Файл со всеми задачами. На случай, если телефон потеряется</div>
+    </div>
+    <button class="btn btn--ghost" style="flex:0 0 auto;min-height:44px;padding:0 16px" type="button" data-act="export">Сохранить</button>
+  </div>
+
+  <div class="opt">
+    <div>
+      <div class="opt__name">Загрузить копию</div>
+      <div class="opt__hint">Заменит текущие задачи тем, что в файле</div>
+    </div>
+    <button class="btn btn--ghost" style="flex:0 0 auto;min-height:44px;padding:0 16px" type="button" data-act="import">Загрузить</button>
+  </div>
+
+  <div class="sheet__actions">
+    <button class="btn btn--primary" type="button" data-act="close">Готово</button>
+  </div>
+
+  <input type="file" id="import-file" accept="application/json,.json" hidden>
 </section>
 
 <script type="module" src="app.js"></script>
