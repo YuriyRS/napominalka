@@ -9,16 +9,17 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
 
 const CASES = {
-  обычный:  { tasks: DEMO_DAY, dark: false, height: 880 },
-  тёмная:   { tasks: DEMO_DAY, dark: true,  height: 880 },
-  закрытый: { tasks: DEMO_DAY.map((t) => ({ ...t, done: true })), dark: false, height: 880 },
-  пустой:   { tasks: [], dark: false, height: 760 },
+  обычный:    { tasks: DEMO_DAY, dark: false, height: 880 },
+  тёмная:     { tasks: DEMO_DAY, dark: true,  height: 880 },
+  закрытый:   { tasks: DEMO_DAY.map((t) => ({ ...t, done: true })), dark: false, height: 880 },
+  просрочено: { tasks: DEMO_LATE, dark: false, height: 1180 },
+  пустой:     { tasks: [], dark: false, height: 760 },
 };
 
 const [name = 'обычный', height] = process.argv.slice(2);

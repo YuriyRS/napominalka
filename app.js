@@ -29,6 +29,16 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
 const pad2 = (n) => String(n).padStart(2, '0');
 const hhmm = (ts) => { const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
 
+const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+
+/** «вчера, 15:00», «10 сент., 15:00» — для дел, которые остались с прошлых дней. */
+function whenLabel(ts) {
+  const days = Math.round((startOfToday() - new Date(ts).setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days === 1) return `вчера, ${hhmm(ts)}`;
+  const d = new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  return `${d}, ${hhmm(ts)}`;
+}
+
 function plural(n, one, few, many) {
   const m10 = n % 10, m100 = n % 100;
   if (m10 === 1 && m100 !== 11) return one;
@@ -45,6 +55,10 @@ const state = {
   tasks: [],
   theme: localStorage.getItem('theme') || 'auto',
   accent: localStorage.getItem('accent') || 'violet',
+  editing: null,     // id дела, которое сейчас правят в форме
+  sheetTask: null,   // id дела, для которого открыт лист действий
+  removed: null,     // удалённое дело — живёт, пока видна полоска «Вернуть»
+  flash: null,       // id строки, которую нужно подсветить один кадр
 };
 
 /* ---------- Оформление ---------- */
@@ -148,6 +162,13 @@ function renderToday(f) {
   const nextId = active.find((t) => t.at >= now.getTime())?.id ?? null;
   const closed = todays.length > 0 && active.length === 0;
 
+  // Незакрытое с прошлых дней. Раньше оно не показывалось нигде: человек
+  // записал дело, не сделал, и оно молча исчезало — для напоминалки это
+  // худшее, что может случиться.
+  const overdue = state.tasks
+    .filter((t) => !t.done && t.at < startOfDay.getTime())
+    .sort((a, b) => a.at - b.at);
+
   // флаг «только что отмечено» живёт ровно один кадр — он подсвечивает
   // строку, чтобы глаз проследил, куда она уехала
   const flashId = state.flash;
@@ -157,19 +178,21 @@ function renderToday(f) {
   const dateNum = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 
   const subText = todays.length === 0
-    ? 'свободный день'
+    ? (overdue.length ? 'на сегодня ничего' : 'свободный день')
     : closed
       ? 'всё сделано — отдыхайте'
       : `осталось ${deeds(active.length)}`;
 
-  const row = (t, extra = '') => `
+  // late — дело с прошлого дня: вместо часов показываем «вчера, 15:00»,
+  // иначе непонятно, откуда оно взялось
+  const row = (t, extra = '', late = false) => `
     <li class="task ${t.done ? 'task--done' : ''} ${t.id === flashId ? 'task--flash' : ''} ${extra}" data-id="${esc(t.id)}">
       <button class="task__check" data-act="toggle" aria-pressed="${t.done}"
               aria-label="${t.done ? 'Отменить' : 'Отметить'} «${esc(t.title)}»">
         ${svg(ICON.check)}
       </button>
       <div class="task__body">
-        <div class="task__time">${hhmm(t.at)}</div>
+        <div class="task__time">${late ? esc(whenLabel(t.at)) : hhmm(t.at)}</div>
         <div class="task__title">${esc(t.title)}</div>
         ${t.note ? `<div class="task__note">${esc(t.note)}</div>` : ''}
       </div>
@@ -208,7 +231,17 @@ function renderToday(f) {
     <div class="list list--done${f}"><ul class="timeline timeline--flat">${
       done.map((t) => row(t)).join('')}</ul></div>` : '';
 
-  const body = todays.length === 0 ? emptyState(f) : dayBlock + doneBlock;
+  const overdueBlock = overdue.length ? `
+    <div class="section">
+      <h2 class="section__name section__name--late">Просрочено</h2>
+      <span class="section__meta">${overdue.length}</span>
+    </div>
+    <div class="list list--late${f}"><ul class="timeline timeline--flat">${
+      overdue.map((t) => row(t, '', true)).join('')}</ul></div>` : '';
+
+  const body = (todays.length || overdue.length)
+    ? overdueBlock + dayBlock + doneBlock
+    : emptyState(f);
   const pct = todays.length ? Math.round((done.length / todays.length) * 100) : 0;
 
   root.innerHTML = `
@@ -251,31 +284,68 @@ function renderSoon(title, text, stage, f) {
 
 /* ---------- Листы ---------- */
 
-const addSheet  = document.getElementById('sheet');
-const addBack   = document.getElementById('sheet-back');
-const setSheet  = document.getElementById('settings');
-const setBack   = document.getElementById('settings-back');
-const form      = document.getElementById('task-form');
+const sheets = {
+  add:      document.getElementById('sheet'),
+  settings: document.getElementById('settings'),
+  task:     document.getElementById('task-sheet'),
+};
+const scrim = document.getElementById('sheet-back');
+const undoEl = document.getElementById('undo');
+const form  = document.getElementById('task-form');
 
-const anyOpen = () => addSheet.classList.contains('sheet--on') || setSheet.classList.contains('sheet--on');
+const sheetTitle  = document.getElementById('sheet-title');
+const submitBtn   = form.querySelector('[type="submit"]');
+const taskTitleEl = document.getElementById('task-sheet-title');
+const moveLabel   = document.getElementById('move-label');
+
+/** Открыт всегда ровно один лист — затемнение тоже одно. */
+function openSheet(name) {
+  closeSheets();
+  scrim.classList.add('sheet-back--on');
+  sheets[name].classList.add('sheet--on');
+}
+
+function closeSheets() {
+  scrim.classList.remove('sheet-back--on');
+  for (const el of Object.values(sheets)) el.classList.remove('sheet--on');
+}
 
 function openAdd() {
+  state.editing = null;
   form.reset();
   form.elements.time.value = defaultTime();
-  addBack.classList.add('sheet-back--on');
-  addSheet.classList.add('sheet--on');
+  sheetTitle.textContent = 'Новое дело';
+  submitBtn.textContent = 'Добавить';
+  openSheet('add');
+  setTimeout(() => form.elements.title.focus(), 360);
+}
+
+function openEdit(id) {
+  const t = state.tasks.find((x) => x.id === id);
+  if (!t) return;
+  state.editing = id;
+  form.elements.title.value = t.title;
+  form.elements.note.value = t.note || '';
+  form.elements.time.value = hhmm(t.at);
+  sheetTitle.textContent = 'Изменить дело';
+  submitBtn.textContent = 'Сохранить';
+  openSheet('add');
   setTimeout(() => form.elements.title.focus(), 360);
 }
 
 function openSettings() {
-  setBack.classList.add('sheet-back--on');
-  setSheet.classList.add('sheet--on');
+  openSheet('settings');
   syncSettings();
 }
 
-function closeSheets() {
-  for (const el of [addSheet, setSheet]) el.classList.remove('sheet--on');
-  for (const el of [addBack, setBack]) el.classList.remove('sheet-back--on');
+function openTaskSheet(id) {
+  const t = state.tasks.find((x) => x.id === id);
+  if (!t) return;
+  state.sheetTask = id;
+  taskTitleEl.textContent = t.title;
+  // просроченному делу «завтра» не поможет — его место сегодня
+  moveLabel.textContent = t.at < startOfToday() ? 'Вернуть на сегодня' : 'Перенести на завтра';
+  openSheet('task');
 }
 
 function defaultTime() {
@@ -286,30 +356,88 @@ function defaultTime() {
 }
 
 function syncSettings() {
-  for (const b of setSheet.querySelectorAll('[data-theme-set]')) {
+  for (const b of sheets.settings.querySelectorAll('[data-theme-set]')) {
     b.setAttribute('aria-pressed', String(b.dataset.themeSet === state.theme));
   }
-  for (const b of setSheet.querySelectorAll('[data-accent-set]')) {
+  for (const b of sheets.settings.querySelectorAll('[data-accent-set]')) {
     b.setAttribute('aria-pressed', String(b.dataset.accentSet === state.accent));
   }
 }
 
 /* ---------- Действия ---------- */
 
-async function addTask(title, note, time) {
+/* Новое дело и изменённое идут одним путём: форма одна, отличается только
+   тем, есть ли state.editing. У просроченного дела при изменении сохраняется
+   его прежняя дата — меняем только часы, иначе оно молча прыгнет на сегодня. */
+async function saveTask(title, note, time) {
   const [h, m] = time.split(':').map(Number);
-  const d = new Date();
+  const old = state.editing ? state.tasks.find((x) => x.id === state.editing) : null;
+  const d = old ? new Date(old.at) : new Date();
   d.setHours(h, m, 0, 0);
-  await db.put({
-    id: db.newId(),
-    title: title.trim(),
-    note: note.trim(),
-    at: d.getTime(),
-    done: false,
-    doneAt: null,
-    createdAt: Date.now(),
-  });
+
+  await db.put(old
+    ? { ...old, title: title.trim(), note: note.trim(), at: d.getTime() }
+    : {
+        id: db.newId(),
+        title: title.trim(),
+        note: note.trim(),
+        at: d.getTime(),
+        done: false,
+        doneAt: null,
+        createdAt: Date.now(),
+      });
+  state.editing = null;
   await refresh();
+}
+
+/** Просроченное возвращается на сегодня, остальное уезжает на завтра.
+    Условие то же, что и у подписи в листе действий — они не разойдутся. */
+async function moveTask(id) {
+  const t = state.tasks.find((x) => x.id === id);
+  if (!t) return;
+  const d = new Date(t.at);
+  if (t.at < startOfToday()) {
+    const now = new Date();
+    d.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+  } else {
+    d.setDate(d.getDate() + 1);
+  }
+  t.at = d.getTime();
+  await db.put(t);
+  state.flash = id;
+  await refresh();
+}
+
+async function deleteTask(id) {
+  const t = state.tasks.find((x) => x.id === id);
+  if (!t) return;
+  state.removed = t;          // держим в памяти, пока полоска «Вернуть» на экране
+  await db.remove(id);
+  await refresh();
+  showUndo();
+}
+
+async function undoDelete() {
+  const t = state.removed;
+  if (!t) return;
+  hideUndo();          // сначала забираем дело, потом прячем полоску —
+                       // hideUndo обнуляет state.removed
+  await db.put(t);
+  await refresh();
+}
+
+let undoTimer = 0;
+
+function showUndo() {
+  undoEl.classList.add('undo--on');
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(hideUndo, 6000);
+}
+
+function hideUndo() {
+  clearTimeout(undoTimer);
+  undoEl.classList.remove('undo--on');
+  state.removed = null;
 }
 
 async function toggleTask(id) {
@@ -372,7 +500,62 @@ document.addEventListener('click', async (e) => {
       if (id) await toggleTask(id);
       return;
     }
+
+    // действия над делом из листа, открытого долгим нажатием
+    const id = state.sheetTask;
+    if (a === 'edit') { if (id) openEdit(id); return; }
+    if (a === 'move') { closeSheets(); if (id) await moveTask(id); return; }
+    if (a === 'delete') { closeSheets(); if (id) await deleteTask(id); return; }
+    if (a === 'undo') { await undoDelete(); return; }
   }
+});
+
+/* ---------- Долгое нажатие ----------
+   §4.1: долгое нажатие на дело открывает карточку действий. Держим 480 мс;
+   сдвиг пальца больше чем на 10 px отменяет — иначе меню вылезало бы
+   при обычной прокрутке списка. */
+
+let hold = null;
+
+function dropHold() {
+  if (!hold) return;
+  clearTimeout(hold.timer);
+  hold.row.classList.remove('task--held');
+  hold = null;
+}
+
+document.addEventListener('pointerdown', (e) => {
+  const row = e.target.closest('.task');
+  // галочка — это отметка «сделано», у неё своё действие
+  if (!row || e.target.closest('.task__check')) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  dropHold();
+  const h = { row, x: e.clientX, y: e.clientY, timer: 0 };
+  h.timer = setTimeout(() => {
+    hold = null;
+    row.classList.add('task--held');
+    setTimeout(() => row.classList.remove('task--held'), 260);
+    navigator.vibrate?.(14);
+    openTaskSheet(row.dataset.id);
+  }, 480);
+  hold = h;
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (hold && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 10) dropHold();
+});
+
+document.addEventListener('pointerup', dropHold);
+document.addEventListener('pointercancel', dropHold);
+
+// на компьютере то же самое делает правая кнопка
+document.addEventListener('contextmenu', (e) => {
+  const row = e.target.closest('.task');
+  if (!row) return;
+  e.preventDefault();
+  dropHold();
+  openTaskSheet(row.dataset.id);
 });
 
 for (const b of document.querySelectorAll('[data-theme-set]')) {
@@ -405,14 +588,14 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
   }
 });
 
-for (const back of [addBack, setBack]) back.addEventListener('click', closeSheets);
+scrim.addEventListener('click', closeSheets);
 document.getElementById('sheet-cancel').addEventListener('click', closeSheets);
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const title = form.elements.title.value;
   if (!title.trim()) return;
-  await addTask(title, form.elements.note.value, form.elements.time.value);
+  await saveTask(title, form.elements.note.value, form.elements.time.value);
   closeSheets();
 });
 

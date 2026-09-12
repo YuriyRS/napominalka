@@ -76,6 +76,10 @@
     --accent:       #8B7CFF;
     --accent-2:     #A78BFA;
     --accent-ink:   #10101C;
+    /* #D03B3B на тёмном фоне даёт 3.7:1 — для текста этого мало.
+       Остальные статусы на тёмном читаются нормально, светлеет только
+       «удалить»: это единственное место, где статус — текст. */
+    --critical:     #FF6B6B;
     --lift-1:       0 1px 2px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .4);
     --lift-2:       0 2px 6px rgba(0, 0, 0, .6), 0 12px 32px rgba(0, 0, 0, .5);
     --lift-3:       0 -2px 8px rgba(0, 0, 0, .5), 0 -20px 60px rgba(0, 0, 0, .7);
@@ -95,6 +99,7 @@
   --accent:       #8B7CFF;
   --accent-2:     #A78BFA;
   --accent-ink:   #10101C;
+  --critical:     #FF6B6B;
   --lift-1:       0 1px 2px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .4);
   --lift-2:       0 2px 6px rgba(0, 0, 0, .6), 0 12px 32px rgba(0, 0, 0, .5);
   --lift-3:       0 -2px 8px rgba(0, 0, 0, .5), 0 -20px 60px rgba(0, 0, 0, .7);
@@ -351,7 +356,16 @@ input  { font: inherit; color: inherit; }
   gap: var(--dot-gap);
   align-items: start;
   padding: 11px var(--gutter);
+  /* без этого долгое нажатие выделяет текст и зовёт системное меню
+     вместо нашего листа действий */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: background .18s var(--ease-out), transform .18s var(--ease-spring);
 }
+
+/* строка под пальцем, пока идёт долгое нажатие */
+.task--held { background: var(--accent-wash); transform: scale(.985); }
 
 .task + .task { border-top: 1px solid var(--line); }
 
@@ -374,11 +388,14 @@ input  { font: inherit; color: inherit; }
 
 /* Кружок нарисован 26 px, но палец должен попадать в 48 — это главное
    действие на экране, и промах по нему раздражает сильнее всего.
-   Зона нажатия расширена, вид не тронут. */
+   Зона нажатия расширена, вид не тронут.
+
+   13, а не 11: `inset` отсчитывается от padding-box, а рамка в 2 px
+   съедает по два пикселя с каждой стороны — при 11 выходило 44, а не 48. */
 .task__check::after {
   content: "";
   position: absolute;
-  inset: -11px;
+  inset: -13px;
   border-radius: 50%;
 }
 
@@ -427,6 +444,13 @@ input  { font: inherit; color: inherit; }
 
 .task--done .task__time { opacity: .6; }
 .list--done .task__title { font-size: 15.5px; }
+
+/* Просроченное — это состояние, а не украшение: цвет идёт вместе
+   с подписью «вчера, 15:00», а не сам по себе */
+.section__name--late { color: var(--serious); }
+.list--late { box-shadow: var(--lift-1); }
+.task--overdue .task__time { color: var(--serious); }
+.task--overdue .task__check { border-color: color-mix(in srgb, var(--serious) 50%, transparent); }
 
 /* ближайшее дело — единственное цветное место в списке */
 .task--next { background: var(--accent-wash); }
@@ -648,6 +672,87 @@ input  { font: inherit; color: inherit; }
 
 .sheet__grip { width: 38px; height: 4px; margin: 0 auto 18px; border-radius: 2px; background: var(--line-strong); }
 .sheet__title { margin: 0 0 18px; font-size: 20px; font-weight: 660; letter-spacing: -.025em; }
+
+/* В листе действий заголовок — это название дела, а не имя листа.
+   Оно бывает длинным, поэтому чуть мельче и с обычным межстрочным. */
+.sheet__title--task { font-size: 19px; line-height: 1.3; margin-bottom: 14px; }
+
+/* ---------- Список действий над делом ---------- */
+
+.acts { display: flex; flex-direction: column; }
+
+.act {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  min-height: 58px;
+  padding: 0 6px;
+  border-radius: var(--r-inner);
+  font-size: 16.5px;
+  font-weight: 520;
+  letter-spacing: -.01em;
+  text-align: left;
+  transition: background .16s var(--ease-out);
+}
+
+.act:active { background: var(--card-2); }
+
+.act svg {
+  width: 22px; height: 22px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* удаление — единственное разрушительное действие, помечаем цветом */
+.act--danger, .act--danger svg { color: var(--critical); }
+.act--danger svg { stroke: var(--critical); }
+
+/* ---------- Полоска «удалено, можно вернуть» ---------- */
+
+.undo {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(146px + env(safe-area-inset-bottom, 0px));
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 var(--pad);
+  z-index: 15;
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity .22s var(--ease-out), transform .3s var(--ease-spring);
+}
+
+.undo--on { opacity: 1; transform: none; pointer-events: auto; }
+
+/* намеренно перевёрнутая плашка: она должна читаться как служебное
+   сообщение, а не как ещё одна карточка приложения */
+.undo__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 52px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--page);
+  font-size: 14.5px;
+  box-shadow: var(--lift-2);
+}
+
+.undo__back {
+  flex: 0 0 auto;
+  font-size: 14.5px;
+  font-weight: 680;
+  color: var(--page);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
 .field { margin-bottom: 13px; }
 

@@ -165,8 +165,14 @@ export async function open({ port, out, width = 400, height = 880, scale = 2 }) 
 export function seedExpr(tasks) {
   return `(async () => {
     const d = new Date();
-    const D = (h, m) => { const x = new Date(d); x.setHours(h, m, 0, 0); return x.getTime(); };
-    const tasks = (${JSON.stringify(tasks)}).map((t) => ({ ...t, at: D(t.h, t.m) }));
+    const D = (h, m, daysAgo = 0) => {
+      const x = new Date(d);
+      x.setDate(x.getDate() - daysAgo);
+      x.setHours(h, m, 0, 0);
+      return x.getTime();
+    };
+    const tasks = (${JSON.stringify(tasks)}).map(({ h, m, daysAgo, ...rest }) =>
+      ({ ...rest, at: D(h, m, daysAgo) }));
     await new Promise((res, rej) => {
       const rq = indexedDB.open('napominalka', 1);
       rq.onupgradeneeded = () => {
@@ -186,7 +192,7 @@ export function seedExpr(tasks) {
   })()`;
 }
 
-/** Обычный день: два дела закрыто, четыре впереди, между ними разрывы разной длины */
+/** Обычный день: два дела закрыто, четыре впереди, разрывы разной длины */
 export const DEMO_DAY = [
   { id: 'a1', title: 'Забрать посылку', note: 'пункт выдачи у метро', h: 8, m: 20, done: true },
   { id: 'a2', title: 'Позвонить маме', note: '', h: 9, m: 40, done: true },
@@ -194,4 +200,11 @@ export const DEMO_DAY = [
   { id: 'a4', title: 'Купить сыр галанский', note: 'в Пятёрочке у дома', h: 15, m: 0, done: false },
   { id: 'a5', title: 'Забрать Аню из садика', note: '', h: 18, m: 30, done: false },
   { id: 'a6', title: 'Оплатить электричество', note: 'до 25-го', h: 20, m: 15, done: false },
+];
+
+/** То же, но два дела остались с прошлых дней */
+export const DEMO_LATE = [
+  { id: 'b1', title: 'Сдать анализы', note: '', h: 9, m: 0, daysAgo: 1, done: false },
+  { id: 'b2', title: 'Записаться на приём к врачу', note: '', h: 16, m: 30, daysAgo: 3, done: false },
+  ...DEMO_DAY,
 ];
