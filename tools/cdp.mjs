@@ -217,7 +217,7 @@ export const DEMO_DAY = [
   { id: 'a2', title: 'Позвонить маме', note: '', h: 9, m: 40, done: true },
   { id: 'a3', title: 'Записаться к стоматологу', note: '', h: 12, m: 10, done: false },
   { id: 'a4', title: 'Купить сыр галанский', note: 'в Пятёрочке у дома', h: 15, m: 0, done: false },
-  { id: 'a5', title: 'Забрать Аню из садика', note: '', h: 18, m: 30, done: false },
+  { id: 'a5', title: 'Забрать велосипед из ремонта', note: '', h: 18, m: 30, done: false },
   { id: 'a6', title: 'Оплатить электричество', note: 'до 25-го', h: 20, m: 15, done: false },
 ];
 
