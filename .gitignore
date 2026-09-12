@@ -8,3 +8,6 @@ Thumbs.db
 
 # личные бэкапы задач
 *.backup.json
+
+# снимки и профиль браузера от стенда tools/
+tools/out/
