@@ -5,13 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Напоминалка</title>
 
-<meta name="theme-color" content="#F4F2EE" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#08070C" media="(prefers-color-scheme: dark)">
+<!-- цвет обновляется из app.js: если тема выбрана руками, системная
+     настройка уже не подскажет браузеру, каким рисовать статус-бар -->
+<meta name="theme-color" id="theme-color" content="#F4F2EE">
 <meta name="description" content="Семейная напоминалка. Всё, что нужно не забыть.">
 
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<!-- iOS сам скругляет значок, поэтому берём квадратный: у скруглённого
+     по краям остались бы прозрачные подковки -->
+<link rel="apple-touch-icon" href="icons/maskable-192.png">
 
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Напоминалка">

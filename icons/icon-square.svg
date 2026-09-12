@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Напоминалка">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5A28E0"/>
+      <stop offset="1" stop-color="#7A2BF0"/>
+    </linearGradient>
+  </defs>
+  <!-- Фон во весь квадрат, без скруглений. Маскируемый значок система
+       обрезает по своей форме; скруглённые углы превратились бы
+       в прозрачные дыры по краям. Знак при этом остаётся внутри
+       безопасной зоны — круга поперечником 80% от значка. -->
+  <rect width="512" height="512" fill="url(#g)"/>
+  <circle cx="256" cy="256" r="126" fill="none" stroke="#FFFFFF" stroke-width="30" opacity=".38"/>
+  <path d="M186 262l52 52 96-116"
+        fill="none" stroke="#FFFFFF" stroke-width="42"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

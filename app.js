@@ -51,24 +51,42 @@ const state = {
 
 const ACCENTS = ['violet', 'blue', 'teal', 'emerald'];
 
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+
 function applyAppearance() {
   const el = document.documentElement;
   if (state.theme === 'auto') el.removeAttribute('data-theme');
   else el.setAttribute('data-theme', state.theme);
   if (state.accent === 'violet') el.removeAttribute('data-accent');
   else el.setAttribute('data-accent', state.accent);
+
+  // статус-бар телефона должен совпадать с фоном приложения,
+  // в том числе когда тему выбрали руками вопреки системе
+  const dark = state.theme === 'dark' || (state.theme === 'auto' && darkQuery.matches);
+  document.getElementById('theme-color')
+    .setAttribute('content', dark ? '#08070C' : '#F4F2EE');
 }
+
+// система сменила тему, а мы в режиме «как в телефоне» — догоняем
+darkQuery.addEventListener('change', () => { if (state.theme === 'auto') applyAppearance(); });
 
 /* ---------- Отрисовка ---------- */
 
 const root  = document.getElementById('screen');
 const navEl = document.getElementById('nav');
 
+/* Появление проигрывается только при входе на экран.
+   Иначе любое обновление — отметка дела, смена минуты — заставляет
+   карточки всплывать заново, и экран мигает. */
+let fresh = true;
+
 function render() {
-  if (state.tab === 'today') renderToday();
-  if (state.tab === 'month') renderSoon('Месяц', 'Календарь с плотностью задач по дням', 'Этап 2');
-  if (state.tab === 'year')  renderSoon('Год', 'Обзор по месяцам — видно, где густо, а где пусто', 'Этап 2');
-  if (state.tab === 'subs')  renderSoon('Подписки', 'Список подписок, даты списаний и общая сумма', 'Этап 4');
+  const f = fresh ? ' is-fresh' : '';
+  fresh = false;
+  if (state.tab === 'today') renderToday(f);
+  if (state.tab === 'month') renderSoon('Месяц', 'Календарь с плотностью задач по дням', 'Этап 2', f);
+  if (state.tab === 'year')  renderSoon('Год', 'Обзор по месяцам — видно, где густо, а где пусто', 'Этап 2', f);
+  if (state.tab === 'subs')  renderSoon('Подписки', 'Список подписок, даты списаний и общая сумма', 'Этап 4', f);
   renderNav();
 }
 
@@ -87,39 +105,36 @@ function renderNav() {
     </button>`).join('');
 }
 
-const topBar = () => `
-  <div class="top">
-    <h1 class="top__title">${state.tab === 'today' ? 'Сегодня' : esc({ month: 'Месяц', year: 'Год', subs: 'Подписки' }[state.tab] || '')}</h1>
-    <button class="icon-btn" data-act="settings" aria-label="Настройки">${svg(ICON.gear)}</button>
-  </div>`;
+const TITLES = { month: 'Месяц', year: 'Год', subs: 'Подписки' };
 
-/* кольцо прогресса: r=30 → длина окружности 2πr */
-const RING_R = 30;
-const RING_C = 2 * Math.PI * RING_R;
+const gear = `<button class="icon-btn" data-act="settings" aria-label="Настройки">${svg(ICON.gear)}</button>`;
 
-function ring(done, total) {
-  const p = total ? done / total : 0;
-  const offset = RING_C * (1 - p);
-  const num = total ? `${done}<span class="ring__of">/${total}</span>` : '—';
-  return `
-    <div class="ring">
-      <svg viewBox="0 0 72 72" aria-hidden="true">
-        <defs>
-          <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop class="ring-grad-a" offset="0"/>
-            <stop class="ring-grad-b" offset="1"/>
-          </linearGradient>
-        </defs>
-        <circle class="ring__track" cx="36" cy="36" r="${RING_R}"/>
-        <circle class="ring__fill" cx="36" cy="36" r="${RING_R}"
-                stroke-dasharray="${RING_C.toFixed(1)}"
-                stroke-dashoffset="${offset.toFixed(1)}"/>
-      </svg>
-      <span class="ring__num">${num}</span>
-    </div>`;
-}
+/* На «Сегодня» имя экрана — мелкая надстрочная строка, а не заголовок:
+   крупным шрифтом здесь пишется дата, иначе две доминанты спорят за глаз. */
+const topBar = () => state.tab === 'today'
+  ? `<div class="top top--slim"><span class="top__eyebrow">Сегодня</span>${gear}</div>`
+  : `<div class="top"><h1 class="top__title">${esc(TITLES[state.tab] || '')}</h1>${gear}</div>`;
 
-function renderToday() {
+/* ---------- Шкала дня ----------
+   Дела стоят на своих часах, а не ровными строками: тогда у дня видно
+   форму — где густо, а где окно.
+
+   Разрыв сжимается по логарифму. Линейная шкала даёт только крайности:
+   либо получасовые паузы неразличимы, либо перерыв с утра до вечера
+   занимает три экрана. Логарифм сохраняет порядок («три часа больше,
+   чем час») и при этом держит день в пределах разумной длины. */
+
+const GAP_MIN = 10;
+const GAP_K = 34;
+
+const gapPx = (ms) => Math.round(GAP_MIN + GAP_K * Math.log2(1 + ms / 3_600_000));
+
+const gapLabel = (ms) => {
+  const h = Math.round(ms / 3_600_000);
+  return h >= 3 ? `${h} ч` : '';
+};
+
+function renderToday(f) {
   const now = new Date();
   const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date(startOfDay); endOfDay.setDate(endOfDay.getDate() + 1);
@@ -131,20 +146,24 @@ function renderToday() {
   const active = todays.filter((t) => !t.done);
   const done   = todays.filter((t) => t.done);
   const nextId = active.find((t) => t.at >= now.getTime())?.id ?? null;
+  const closed = todays.length > 0 && active.length === 0;
 
-  // «суббота, 12 сентября» — поднимаем только первую букву,
-  // месяц в русском остаётся строчным
-  const raw = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
-  const dateStr = raw.charAt(0).toUpperCase() + raw.slice(1);
+  // флаг «только что отмечено» живёт ровно один кадр — он подсвечивает
+  // строку, чтобы глаз проследил, куда она уехала
+  const flashId = state.flash;
+  state.flash = null;
+
+  const weekday = now.toLocaleDateString('ru-RU', { weekday: 'long' });
+  const dateNum = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 
   const subText = todays.length === 0
-    ? 'Пока пусто'
-    : active.length === 0
-      ? 'Всё сделано. Отдыхайте.'
+    ? 'свободный день'
+    : closed
+      ? 'всё сделано — отдыхайте'
       : `осталось ${deeds(active.length)}`;
 
   const row = (t, extra = '') => `
-    <div class="task ${t.done ? 'task--done' : ''} ${extra}" data-id="${esc(t.id)}">
+    <li class="task ${t.done ? 'task--done' : ''} ${t.id === flashId ? 'task--flash' : ''} ${extra}" data-id="${esc(t.id)}">
       <button class="task__check" data-act="toggle" aria-pressed="${t.done}"
               aria-label="${t.done ? 'Отменить' : 'Отметить'} «${esc(t.title)}»">
         ${svg(ICON.check)}
@@ -154,38 +173,52 @@ function renderToday() {
         <div class="task__title">${esc(t.title)}</div>
         ${t.note ? `<div class="task__note">${esc(t.note)}</div>` : ''}
       </div>
-    </div>`;
+    </li>`;
 
-  let body = '';
-  if (todays.length) {
-    let items = '';
-    let placed = false;
-    for (const t of active) {
-      if (!placed && t.at >= now.getTime()) { items += nowLine(now); placed = true; }
-      if (t.done) continue;
-      items += `<li>${row(t, t.id === nextId ? 'task--next' : '')}</li>`;
+  // лента дня: между делами — воздух по фактическому разрыву
+  let items = '';
+  let prevAt = null;
+  const push = (at, html) => {
+    if (prevAt !== null) {
+      const d = at - prevAt;
+      const label = gapLabel(d);
+      items += `<li class="gap" style="--h:${gapPx(d)}px" aria-hidden="true">${
+        label ? `<span>${label}</span>` : ''}</li>`;
     }
-    if (active.length && !placed) items += nowLine(now);
-    for (const t of done) items += `<li>${row(t)}</li>`;
+    items += html;
+    prevAt = at;
+  };
 
-    body = `
-      <div class="section">
-        <h2 class="section__name">День</h2>
-        <span class="section__meta">${done.length} из ${todays.length}</span>
-      </div>
-      <div class="list"><ul class="timeline">${items}</ul></div>`;
-  } else {
-    body = emptyState();
+  let placed = false;
+  for (const t of active) {
+    if (!placed && t.at >= now.getTime()) { push(now.getTime(), nowLine(now)); placed = true; }
+    push(t.at, row(t, t.id === nextId ? 'task--next' : ''));
   }
+  if (active.length && !placed) push(now.getTime(), nowLine(now));
+
+  const dayBlock = active.length ? `
+    <div class="section"><h2 class="section__name">День</h2></div>
+    <div class="list${f}"><ul class="timeline">${items}</ul></div>` : '';
+
+  const doneBlock = done.length ? `
+    <div class="section">
+      <h2 class="section__name">Сделано</h2>
+      <span class="section__meta">${done.length}</span>
+    </div>
+    <div class="list list--done${f}"><ul class="timeline timeline--flat">${
+      done.map((t) => row(t)).join('')}</ul></div>` : '';
+
+  const body = todays.length === 0 ? emptyState(f) : dayBlock + doneBlock;
+  const pct = todays.length ? Math.round((done.length / todays.length) * 100) : 0;
 
   root.innerHTML = `
     ${topBar()}
-    <section class="hero">
-      ${ring(done.length, todays.length)}
-      <div class="hero__text">
-        <p class="hero__date">${esc(dateStr)}</p>
-        <p class="hero__sub">${esc(subText)}</p>
-      </div>
+    <section class="hero${closed ? ' hero--closed' : ''}${f}">
+      <h2 class="hero__date">${esc(dateNum)}</h2>
+      <p class="hero__sub${closed ? ' hero__sub--done' : ''}">
+        ${closed ? svg(ICON.check) : ''}${esc(weekday)} · ${esc(subText)}
+      </p>
+      ${todays.length ? `<div class="hero__bar"><i style="width:${pct}%"></i></div>` : ''}
     </section>
     ${body}
     <div class="add-bar">
@@ -194,26 +227,22 @@ function renderToday() {
 }
 
 function nowLine(now) {
-  return `
-    <li class="now" aria-hidden="true">
-      <div class="now__bar"></div>
-      <span class="now__label">сейчас ${hhmm(now.getTime())}</span>
-    </li>`;
+  return `<li class="now" aria-hidden="true"><span class="now__label">${hhmm(now.getTime())}</span></li>`;
 }
 
-function emptyState() {
+function emptyState(f) {
   return `
-    <div class="empty">
+    <div class="empty${f}">
       <div class="empty__mark">${svg(ICON.spark)}</div>
       <h2 class="empty__title">Ничего не запланировано</h2>
       <p class="empty__text">Хороший день, чтобы просто выдохнуть. Или запишите что-нибудь, пока не забылось.</p>
     </div>`;
 }
 
-function renderSoon(title, text, stage) {
+function renderSoon(title, text, stage, f) {
   root.innerHTML = `
     ${topBar()}
-    <div class="soon">
+    <div class="soon${f}">
       <h2 class="soon__title">Ещё не готово</h2>
       <p class="soon__text">${esc(text)}.</p>
       <span class="soon__stage">${esc(stage)}</span>
@@ -288,6 +317,8 @@ async function toggleTask(id) {
   if (!t) return;
   t.done = !t.done;
   t.doneAt = t.done ? Date.now() : null;
+  state.flash = id;
+  if (t.done) navigator.vibrate?.(12);
   await db.put(t);
   await refresh();
 }
@@ -326,7 +357,7 @@ async function refresh() {
 
 document.addEventListener('click', async (e) => {
   const tabBtn = e.target.closest('[data-tab]');
-  if (tabBtn) { state.tab = tabBtn.dataset.tab; render(); return; }
+  if (tabBtn) { state.tab = tabBtn.dataset.tab; fresh = true; render(); return; }
 
   const act = e.target.closest('[data-act]');
   if (act) {
@@ -392,8 +423,26 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet
 applyAppearance();
 refresh();
 
-// если приложение открыто через полночь — обновляем
-setInterval(() => { if (state.tab === 'today') render(); }, 60_000);
+/* Раз в полминуты — только то, что действительно изменилось.
+   Полная перерисовка здесь была бы вредна: она заново проигрывает
+   появление карточек и сбивает нажатие, если палец в этот момент на экране. */
+let prevNow = Date.now();
+
+setInterval(() => {
+  const now = Date.now();
+  const was = new Date(prevNow), is = new Date(now);
+  const rolled = was.getDate() !== is.getDate();
+  // дело перешагнуло текущую минуту → линия «сейчас» едет вниз
+  const crossed = state.tasks.some((t) => t.at > prevNow && t.at <= now);
+  prevNow = now;
+
+  if (state.tab !== 'today') return;
+  if (rolled) { refresh(); return; }
+  if (crossed) { render(); return; }
+
+  const label = root.querySelector('.now__label');
+  if (label) label.textContent = hhmm(now);
+}, 30_000);
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

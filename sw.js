@@ -1,10 +1,10 @@
 /* ============================================================
    Service worker.
-   Задача этапа 1 — офлайн-кэш оболочки. Приём push добавим
+   Задача этапа 1 — офлайн-оболочка. Приём push добавим
    на этапе 3, когда появится сервер-будильник.
    ============================================================ */
 
-const CACHE = 'napominalka-v3';
+const CACHE = 'napominalka-v4';
 
 const ASSETS = [
   './',
@@ -32,18 +32,37 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-/* Оболочка — из кэша, всё остальное — из сети.
-   Данные и так лежат локально, поэтому сеть нужна редко. */
+/* Сначала кэш, но с обновлением в фоне.
+
+   Раньше здесь был чистый «кэш-первым»: приложение открывалось мгновенно,
+   но правки в styles.css и app.js не доходили до установленного приложения
+   никогда — кэш отдавал старую версию, а имя кэша менялось только вместе
+   с этим файлом. Отдаём сохранённое сразу и тут же тянем свежее, чтобы
+   следующее открытие было уже новым. Цена — одна устаревшая загрузка. */
 self.addEventListener('fetch', (e) => {
   const { request } = e;
   if (request.method !== 'GET') return;
   if (new URL(request.url).origin !== self.location.origin) return;
 
-  e.respondWith(
-    caches.match(request).then((hit) => hit || fetch(request).then((res) => {
-      const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const hit = await cache.match(request);
+
+    const fromNet = fetch(request).then((res) => {
+      if (res && res.ok) cache.put(request, res.clone()).catch(() => {});
       return res;
-    }).catch(() => caches.match('./index.html')))
-  );
+    });
+
+    if (hit) {
+      fromNet.catch(() => {});   // ответ уже отдан, сеть просто догоняет
+      return hit;
+    }
+
+    try {
+      return await fromNet;
+    } catch {
+      // первый заход без сети и без кэша — показываем оболочку
+      return (await cache.match('./index.html')) || Response.error();
+    }
+  })());
 });
