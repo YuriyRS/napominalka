@@ -13,7 +13,7 @@ import { open, seedExpr, DEMO_DAY, DEMO_LATE, sleep } from './cdp.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
 
-const b = await open({ port: 8096, out: OUT, width: 400, height: 900 });
+const b = await open({ port: 8104, out: OUT, width: 400, height: 900, base: process.env.BASE });
 const say = (label, v) => console.log(label.padEnd(15), v);
 
 await b.navigate(b.url);

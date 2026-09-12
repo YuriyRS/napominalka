@@ -30,7 +30,7 @@ if (!c) {
 }
 
 const w = Number(height) || c.height;
-const browser = await open({ port: 8099, out: OUT, width: 400, height: w });
+const browser = await open({ port: 8100, out: OUT, width: 400, height: w, base: process.env.BASE });
 
 await browser.navigate(browser.url);
 await sleep(1000);

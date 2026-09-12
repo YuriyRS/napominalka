@@ -49,11 +49,18 @@ function findChrome() {
  * Поднимает статику, Chrome без окна и соединение с ним.
  * Возвращает инструменты для сценария.
  */
-export async function open({ port, out, width = 400, height = 880, scale = 2 }) {
+export async function open({ port, out, width = 400, height = 880, scale = 2, base = '/' }) {
   fs.mkdirSync(out, { recursive: true });
+
+  // BASE=/имя/ повторяет GitHub Pages, где приложение лежит не в корне.
+  // Сервис-воркер и пути к иконкам ведут себя в подкаталоге иначе, и
+  // проверять это лучше до выкладки, а не после.
+  const prefix = ('/' + base.replace(/^\/|\/$/g, '') + '/').replace('//', '/');
 
   const server = http.createServer((req, res) => {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (!p.startsWith(prefix)) { res.writeHead(404); res.end('404'); return; }
+    p = p.slice(prefix.length - 1);
     if (p === '/') p = '/index.html';
     const file = path.join(ROOT, p);
     fs.readFile(file, (e, d) => {
@@ -134,6 +141,18 @@ export async function open({ port, out, width = 400, height = 880, scale = 2 }) 
       return r.result?.value;
     },
 
+    /** Ждёт, пока выражение станет истинным.
+        Фиксированные паузы врут: холодный запуск браузера с новым профилем
+        иногда занимает больше секунды, и снимок выходит пустым. */
+    async waitFor(expression, { timeout = 10_000, step = 100 } = {}) {
+      const until = Date.now() + timeout;
+      while (Date.now() < until) {
+        if (await api.evalIn(expression)) return true;
+        await sleep(step);
+      }
+      return false;
+    },
+
     async shot(name) {
       const { data } = await S('Page.captureScreenshot', { format: 'png' });
       const file = path.join(out, name + '.png');
@@ -154,7 +173,7 @@ export async function open({ port, out, width = 400, height = 880, scale = 2 }) 
     },
   };
 
-  api.url = `http://127.0.0.1:${port}/`;
+  api.url = `http://127.0.0.1:${port}${prefix}`;
   return api;
 }
 
