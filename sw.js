@@ -48,7 +48,13 @@ self.addEventListener('fetch', (e) => {
     const cache = await caches.open(CACHE);
     const hit = await cache.match(request);
 
-    const fromNet = fetch(request).then((res) => {
+    /* cache: 'no-cache' — не «не кэшировать», а «переспросить сайт,
+       можно ли взять из кэша». Без этого фоновое обновление упиралось
+       в HTTP-кэш браузера: GitHub Pages разрешает держать файлы 10 минут,
+       и правка, выложенная только что, могла снова лечь в кэш старой.
+       Тогда новая версия приходила не со второго открытия, а с третьего —
+       и выглядело это как «не обновилось». */
+    const fromNet = fetch(request, { cache: 'no-cache' }).then((res) => {
       if (res && res.ok) cache.put(request, res.clone()).catch(() => {});
       return res;
     });
