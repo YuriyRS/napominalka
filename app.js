@@ -59,6 +59,7 @@ const state = {
   sheetTask: null,   // id дела, для которого открыт лист действий
   removed: null,     // удалённое дело — живёт, пока видна полоска «Вернуть»
   flash: null,       // id строки, которую нужно подсветить один кадр
+  installEvent: null, // отложенное приглашение установки от Chrome, см. ниже
 };
 
 /* ---------- Оформление ---------- */
@@ -143,9 +144,19 @@ const GAP_K = 34;
 
 const gapPx = (ms) => Math.round(GAP_MIN + GAP_K * Math.log2(1 + ms / 3_600_000));
 
+/* Подпись честная. Раньше здесь стояло округление до целых часов: пауза
+   в 2 ч 30 мин писалась как «3 ч», а всё, что короче 2,5 часов, не
+   подписывалось вовсе — на экране оставалось пустое место без объяснения.
+   Минуты показываем, только когда они есть: «3 ч» читается легче,
+   чем «3 ч 0 мин». */
 const gapLabel = (ms) => {
-  const h = Math.round(ms / 3_600_000);
-  return h >= 3 ? `${h} ч` : '';
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return '';
+  const h = Math.floor(min / 60);
+  const rest = min % 60;
+  // минуты двумя разрядами: цифры табличные, и «2 ч 02 мин» стоит ровнее,
+  // чем «2 ч 2 мин»
+  return rest ? `${h} ч ${pad2(rest)} мин` : `${h} ч`;
 };
 
 function renderToday(f) {
@@ -362,7 +373,40 @@ function syncSettings() {
   for (const b of sheets.settings.querySelectorAll('[data-accent-set]')) {
     b.setAttribute('aria-pressed', String(b.dataset.accentSet === state.accent));
   }
+  syncInstallRow();
 }
+
+/* ---------- Установка на телефон ----------
+
+   Chrome сам предлагает поставить приложение, но приглашение уходит вниз
+   экрана, живёт пару секунд и легко пропускается. Перехватываем событие
+   (без preventDefault браузер покажет своё) и держим его, пока человек
+   не откроет настройки и не нажмёт кнопку — то есть когда он сам об этом
+   подумал. Событие одноразовое: после prompt() оно больше не сработает,
+   поэтому после нажатия кнопку убираем.
+
+   На iPhone такого события нет вовсе — там строку просто не показываем,
+   вместо инструкции «Поделиться → На экран „Домой“»: писать её в настройках
+   дольше, чем сделать. */
+
+const installRow = document.getElementById('install-row');
+
+function syncInstallRow() {
+  if (!installRow) return;
+  const already = matchMedia('(display-mode: standalone)').matches;
+  installRow.hidden = already || !state.installEvent;
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  state.installEvent = e;
+  syncInstallRow();
+});
+
+window.addEventListener('appinstalled', () => {
+  state.installEvent = null;
+  syncInstallRow();
+});
 
 /* ---------- Действия ---------- */
 
@@ -495,6 +539,15 @@ document.addEventListener('click', async (e) => {
     if (a === 'close') { closeSheets(); return; }
     if (a === 'export') { exportBackup(); return; }
     if (a === 'import') { document.getElementById('import-file').click(); return; }
+    if (a === 'install') {
+      const invite = state.installEvent;
+      if (!invite) return;
+      state.installEvent = null;   // приглашение одноразовое
+      await invite.prompt();
+      await invite.userChoice;     // ждём выбор, иначе не узнаем, поставили или нет
+      syncInstallRow();
+      return;
+    }
     if (a === 'toggle') {
       const id = act.closest('[data-id]')?.dataset.id;
       if (id) await toggleTask(id);

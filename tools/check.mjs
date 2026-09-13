@@ -123,6 +123,49 @@ say('цвет бара', JSON.stringify({
 await b.evalIn(`document.querySelector('[data-theme-set="auto"]').click()`);
 await b.setSystemTheme('light');
 await sleep(300);
+
+/* Строка установки.
+
+   Chrome — в том числе headless — сам выдаёт beforeinstallprompt, раз
+   приложение установимо, и приложение его ловит. Значит, проверять надо
+   обе стороны: что без приглашения строка спрятана и что с приглашением
+   она видна и работает.
+
+   Событие подсовываем своё, а не полагаемся на настоящее: настоящее
+   одноразовое и уже потрачено приложением при загрузке, а нам нужно
+   ещё и нажать кнопку. */
+await b.evalIn(`window.dispatchEvent(new Event('appinstalled'))`);
+await sleep(200);
+const installHidden = await b.evalIn(
+  `document.getElementById('install-row').hidden
+   && getComputedStyle(document.getElementById('install-row')).display === 'none'`);
+
+await b.evalIn(`(() => {
+  window.__prompted = 0;
+  const e = new Event('beforeinstallprompt');
+  e.prompt = () => { window.__prompted++; return Promise.resolve(); };
+  e.userChoice = Promise.resolve({ outcome: 'accepted' });
+  window.dispatchEvent(e);
+})()`);
+await sleep(200);
+const installShown = await b.evalIn(
+  `!document.getElementById('install-row').hidden
+   && getComputedStyle(document.getElementById('install-row')).display !== 'none'`);
+
+await b.shot('настройки');
+
+await b.evalIn(`document.querySelector('[data-act="install"]').click()`);
+await sleep(300);
+const prompted = await b.evalIn(`window.__prompted`);
+const installGoneAgain = await b.evalIn(`document.getElementById('install-row').hidden`);
+
+say('установка', JSON.stringify({
+  без_приглашения_скрыта: installHidden,
+  с_приглашением_видна: installShown,
+  prompt_вызван: prompted,
+  после_нажатия_скрыта: installGoneAgain,
+}));
+
 await b.evalIn(`document.querySelector('[data-act="close"]').click()`);
 await sleep(400);
 

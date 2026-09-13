@@ -109,6 +109,17 @@
     <button class="btn btn--ghost btn--mini" type="button" data-act="import">Загрузить</button>
   </div>
 
+  <!-- Строка показывается, только когда браузер правда готов поставить
+       приложение. Ставим hidden в разметке, а не прячем из скрипта:
+       так она не мелькнёт до первой отрисовки -->
+  <div class="opt" id="install-row" hidden>
+    <div>
+      <div class="opt__name">Поставить приложением</div>
+      <div class="opt__hint">Значок на главном экране, без адресной строки</div>
+    </div>
+    <button class="btn btn--ghost btn--mini" type="button" data-act="install">Поставить</button>
+  </div>
+
   <div class="sheet__actions">
     <button class="btn btn--primary" type="button" data-act="close">Готово</button>
   </div>
