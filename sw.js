@@ -1,7 +1,7 @@
 /* ============================================================
    Service worker.
-   Задача этапа 1 — офлайн-оболочка. Приём push добавим
-   на этапе 3, когда появится сервер-будильник.
+   Офлайн-оболочка — этап 1. Приём push — начало этапа 3:
+   сначала надо выяснить, доходит ли push до телефона вообще.
    ============================================================ */
 
 const CACHE = 'napominalka-v4';
@@ -71,4 +71,42 @@ self.addEventListener('fetch', (e) => {
       return (await cache.match('./index.html')) || Response.error();
     }
   })());
+});
+
+/* Приём push.
+
+   Пока задача одна: показать, что пуш дошёл, и во сколько. Время
+   берётся здесь, а не в тексте пуша, намеренно: разница между
+   «отправлено» на компьютере и этим временем и есть задержка
+   доставки — то, ради чего проверка и затевается.
+
+   Текст из пуша показываем, если он есть. Первый шаг идёт без
+   текста: пуш без полезной нагрузки не надо шифровать, а значит
+   и ломаться в нём нечему.
+
+   Кнопки «Готово» и «Позже», сводка за день и повтор — дальше,
+   на этапе 3. */
+self.addEventListener('push', (e) => {
+  let data = null;
+  try { data = e.data && e.data.json(); } catch { data = null; }
+
+  e.waitUntil(self.registration.showNotification(data?.title || 'Напоминалка', {
+    body: data?.body || 'Пуш дошёл в ' + new Date().toLocaleTimeString('ru-RU'),
+    tag: 'napominalka-check',
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
+  }));
+});
+
+/* Тап по уведомлению открывает приложение, а не новую вкладку
+   поверх уже открытой. Для этого же обработчика на этапе 3
+   появится разбор кнопок. */
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients
+    .matchAll({ type: 'window', includeUncontrolled: true })
+    .then((list) => {
+      for (const c of list) if ('focus' in c) return c.focus();
+      return self.clients.openWindow('./');
+    }));
 });

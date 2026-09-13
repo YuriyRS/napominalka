@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка пуша — Напоминалка</title>
+
+<!-- ============================================================
+     Разовая страница: выяснить, доходит ли push до этого телефона.
+     Лежит в tools/, потому что это стенд, а не приложение. Живёт
+     по адресу https://yuriyrs.github.io/napominalka/tools/push.html
+
+     Почему не отдельная страница со своим service worker: подписка
+     привязана к регистрации сервис-воркера. Здесь регистрируется
+     ТОТ ЖЕ sw.js и с той же областью видимости, что у приложения, —
+     значит, и подписка получается ровно та, которой будет
+     пользоваться приложение. Проверка на своей, отдельной
+     регистрации доказала бы не то.
+
+     Ничего не хранит и никуда не отправляет: подписку надо
+     унести руками.
+     ============================================================ -->
+
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; padding: 20px 16px 48px; max-width: 640px;
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .lede { color: #6b7280; margin: 0 0 20px; }
+  @media (prefers-color-scheme: dark) { .lede { color: #9ca3af; } }
+
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em;
+       color: #6b7280; margin: 28px 0 8px; font-weight: 600; }
+  @media (prefers-color-scheme: dark) { h2 { color: #9ca3af; } }
+
+  button {
+    font: inherit; font-weight: 600; padding: 12px 18px; border-radius: 10px;
+    border: 1px solid #d1d5db; background: #f9fafb; color: inherit;
+    margin: 0 8px 8px 0; min-height: 48px;
+  }
+  @media (prefers-color-scheme: dark) { button { border-color: #374151; background: #1f2937; } }
+  button[disabled] { opacity: .5; }
+  button.main { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+  #log { margin: 0; padding: 0; list-style: none; font-size: 14px; }
+  #log li { padding: 6px 0 6px 24px; position: relative; }
+  #log li::before { content: "•"; position: absolute; left: 6px; color: #9ca3af; }
+  #log li.ok::before { content: "✓"; color: #16a34a; }
+  #log li.bad::before { content: "✕"; color: #dc2626; }
+
+  textarea {
+    width: 100%; box-sizing: border-box; min-height: 96px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace;
+    padding: 10px; border-radius: 10px; border: 1px solid #d1d5db; background: #fff; color: inherit;
+    resize: vertical; word-break: break-all;
+  }
+  @media (prefers-color-scheme: dark) { textarea { border-color: #374151; background: #111827; } }
+  .hint { font-size: 14px; color: #6b7280; }
+  @media (prefers-color-scheme: dark) { .hint { color: #9ca3af; } }
+</style>
+</head>
+<body>
+
+<h1>Проверка пуша</h1>
+<p class="lede">Выясняем, доходит ли push до этого телефона. Страница разовая:
+ничего не сохраняет и никуда не отправляет.</p>
+
+<h2>Что делает телефон</h2>
+<ul id="log"><li>Ещё не начинали</li></ul>
+
+<button id="go" class="main">Подписаться</button>
+<button id="unsub" disabled>Отписаться</button>
+
+<h2>Адрес подписки</h2>
+<p class="hint">Этого достаточно для пуша без текста — первого шага проверки.</p>
+<textarea id="endpoint" readonly placeholder="появится после подписки"></textarea>
+<button id="copyEnd">Скопировать адрес</button>
+
+<h2>Вся подписка</h2>
+<p class="hint">Понадобится на втором шаге, когда в пуше пойдёт текст.</p>
+<textarea id="full" readonly placeholder="появится после подписки"></textarea>
+<button id="copyFull">Скопировать целиком</button>
+
+<script type="module">
+/* Публичный ключ VAPID. Секретом не является — его видит каждый,
+   кто открыл страницу; закрытая половина лежит вне репозитория.
+   Меняется вместе с ключом: node tools/vapid.mjs заново. */
+const VAPID = 'BHrtejqCcTkiERnKOzuPD9q-Ueh_8pNvYQ19h7Xyreuf0jSMA4HLUbRC_r8pYOtMHyijfM5A_RPUexbuCMruLm8';
+
+const log = (msg, kind = '') => {
+  const li = document.createElement('li');
+  li.textContent = msg;
+  if (kind) li.className = kind;
+  document.getElementById('log').append(li);
+};
+
+const fromBase64 = (s) => {
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  const bin = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+};
+
+const show = (sub) => {
+  const json = sub.toJSON();
+  document.getElementById('endpoint').value = json.endpoint;
+  document.getElementById('full').value = JSON.stringify(json, null, 2);
+  document.getElementById('unsub').disabled = false;
+};
+
+const go = document.getElementById('go');
+
+go.addEventListener('click', async () => {
+  go.disabled = true;
+  document.getElementById('log').innerHTML = '';
+
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    log('В этом браузере нет push или сервис-воркеров', 'bad');
+    return;
+  }
+
+  try {
+    // '../sw.js' от /tools/push.html — это /napominalka/sw.js, тот же
+    // самый воркер, что и у приложения. Область видимости совпадает.
+    const reg = await navigator.serviceWorker.register('../sw.js');
+    await navigator.serviceWorker.ready;
+    log('Сервис-воркер встал, область: ' + reg.scope, 'ok');
+
+    if (Notification.permission !== 'granted') {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        log('Разрешение на уведомления не дано: ' + perm, 'bad');
+        return;
+      }
+    }
+    log('Разрешение на уведомления есть', 'ok');
+
+    let sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      log('Подписка уже была — берём её', 'ok');
+    } else {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: fromBase64(VAPID),
+      });
+      log('Подписка оформлена', 'ok');
+    }
+
+    const host = new URL(sub.endpoint).host;
+    log('Служба доставки: ' + host, host.includes('google') ? 'ok' : 'bad');
+    if (!host.includes('google')) {
+      log('Это не Google — на Android Chrome ждём fcm.googleapis.com', 'bad');
+    }
+
+    show(sub);
+  } catch (err) {
+    log('Ошибка: ' + (err && err.message ? err.message : err), 'bad');
+    go.disabled = false;
+  }
+});
+
+document.getElementById('unsub').addEventListener('click', async () => {
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) { await sub.unsubscribe(); log('Отписались', 'ok'); }
+  document.getElementById('endpoint').value = '';
+  document.getElementById('full').value = '';
+  document.getElementById('unsub').disabled = true;
+  go.disabled = false;
+});
+
+const copy = async (id, btn) => {
+  const text = document.getElementById(id).value;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // запасной путь: на некоторых сборках буфер обмена доступен только так
+    const ta = document.getElementById(id);
+    ta.select();
+    document.execCommand('copy');
+  }
+  const was = btn.textContent;
+  btn.textContent = 'Скопировано';
+  setTimeout(() => { btn.textContent = was; }, 1500);
+};
+
+document.getElementById('copyEnd').addEventListener('click', (e) => copy('endpoint', e.target));
+document.getElementById('copyFull').addEventListener('click', (e) => copy('full', e.target));
+
+/* Если подписка уже есть — показать её сразу, без нажатия кнопки:
+   на телефоне лишние шаги дороже, чем здесь. */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistration().then(async (reg) => {
+    const sub = reg && (await reg.pushManager.getSubscription());
+    if (sub) { log('Подписка уже есть (показана ниже)', 'ok'); show(sub); }
+  }).catch(() => {});
+}
+</script>
+</body>
+</html>
