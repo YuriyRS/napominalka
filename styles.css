@@ -776,6 +776,11 @@ input  { font: inherit; color: inherit; }
 
 .field { margin-bottom: 13px; }
 
+/* Дата и время рядом: оба короткие, и вместе читаются как одно «когда».
+   Отступ снизу — у строки, а не у каждого поля, иначе он удвоился бы. */
+.field-row { display: flex; gap: 10px; margin-bottom: 13px; }
+.field-row .field { flex: 1; min-width: 0; margin-bottom: 0; }
+
 .field__label {
   display: block;
   margin-bottom: 6px;

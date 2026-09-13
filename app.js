@@ -31,6 +31,16 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
 const pad2 = (n) => String(n).padStart(2, '0');
 const hhmm = (ts) => { const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
 
+/** Дата для <input type="date"> — местная, не UTC.
+
+    Через toISOString() здесь нельзя: он переводит в UTC, и в Москве после
+    трёх часов ночи вчерашний вечер уехал бы на день вперёд. Ошибка тихая —
+    дело просто оказывается не в том дне, и ищут её потом неделю. */
+const dateValue = (ts) => {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
 /** «вчера, 15:00», «10 сент., 15:00» — для дел, которые остались с прошлых дней. */
@@ -112,9 +122,12 @@ function render() {
       // тап по «13» в календаре даёт ровно тот же экран, что вкладка
       // «Сегодня», только с возвратом. Иначе один и тот же день описывался
       // бы по-разному — «1 дело» здесь и «осталось 1 дело» там.
+      //
+      // «Добавить» есть у любого дня: форма спрашивает дату, и дело уходит
+      // именно туда, откуда его записали, а не на сегодня.
       const today = state.monthDay === startOfToday();
       renderDay(f, state.monthDay, {
-        back: true, withNow: today, withOverdue: today, withAdd: today,
+        back: true, withNow: today, withOverdue: today, withAdd: true,
       });
     } else {
       renderMonth(f);
@@ -253,8 +266,8 @@ function timeline(tasks, { now = null, nextId = null, flashId = null, flat = fal
    withOverdue — раздел «Просрочено». Он бывает только у сегодняшнего дня:
                  незакрытое с прошлых дней относится к сегодня, а не к
                  произвольной дате, и показывать его на 10 сентября незачем;
-   withAdd     — кнопка «Добавить». У чужого дня её нет: форма спрашивает
-                 только время, не дату, и дело молча уехало бы на сегодня;
+   withAdd     — кнопка «Добавить». Она несёт с собой дату открытого дня,
+                 и форма подставляется на неё, а не на сегодня;
    back        — шапка со стрелкой возврата к календарю. */
 function renderDay(f, dayMs, {
   withNow = false, withOverdue = false, withAdd = false, back = false,
@@ -330,7 +343,7 @@ function renderDay(f, dayMs, {
     </section>
     ${body}
     ${withAdd ? `<div class="add-bar">
-      <button class="add-btn" data-act="add">${svg(ICON.plus)}Добавить</button>
+      <button class="add-btn" data-act="add" data-day="${startOfDay.getTime()}">${svg(ICON.plus)}Добавить</button>
     </div>` : ''}`;
 }
 
@@ -458,9 +471,12 @@ function closeSheets() {
   for (const el of Object.values(sheets)) el.classList.remove('sheet--on');
 }
 
-function openAdd() {
+/* dayMs — день, на который открыта форма. С экрана дня приходит его дата,
+   с «Сегодня» и из шапки календаря — сегодняшняя. */
+function openAdd(dayMs = null) {
   state.editing = null;
   form.reset();
+  form.elements.date.value = dateValue(dayMs ?? Date.now());
   form.elements.time.value = defaultTime();
   sheetTitle.textContent = 'Новое дело';
   submitBtn.textContent = 'Добавить';
@@ -474,6 +490,9 @@ function openEdit(id) {
   state.editing = id;
   form.elements.title.value = t.title;
   form.elements.note.value = t.note || '';
+  // дата приходит из самого дела: поэтому просроченное при правке остаётся
+  // на своём дне, а не прыгает на сегодня — без отдельной охраны
+  form.elements.date.value = dateValue(t.at);
   form.elements.time.value = hhmm(t.at);
   sheetTitle.textContent = 'Изменить дело';
   submitBtn.textContent = 'Сохранить';
@@ -581,21 +600,23 @@ window.addEventListener('appinstalled', () => {
 /* ---------- Действия ---------- */
 
 /* Новое дело и изменённое идут одним путём: форма одна, отличается только
-   тем, есть ли state.editing. У просроченного дела при изменении сохраняется
-   его прежняя дата — меняем только часы, иначе оно молча прыгнет на сегодня. */
-async function saveTask(title, note, time) {
+   тем, есть ли state.editing. Дата и часы приходят двумя полями и здесь
+   складываются в одно местное время — тем же способом, что и раньше, когда
+   дата бралась от сегодня. */
+async function saveTask(title, note, date, time) {
+  const [y, mo, d] = date.split('-').map(Number);
   const [h, m] = time.split(':').map(Number);
+  const at = new Date(y, mo - 1, d, h, m, 0, 0).getTime();
+
   const old = state.editing ? state.tasks.find((x) => x.id === state.editing) : null;
-  const d = old ? new Date(old.at) : new Date();
-  d.setHours(h, m, 0, 0);
 
   await db.put(old
-    ? { ...old, title: title.trim(), note: note.trim(), at: d.getTime() }
+    ? { ...old, title: title.trim(), note: note.trim(), at }
     : {
         id: db.newId(),
         title: title.trim(),
         note: note.trim(),
-        at: d.getTime(),
+        at,
         done: false,
         doneAt: null,
         createdAt: Date.now(),
@@ -713,7 +734,9 @@ document.addEventListener('click', async (e) => {
   const act = e.target.closest('[data-act]');
   if (act) {
     const a = act.dataset.act;
-    if (a === 'add') { openAdd(); return; }
+    // кнопка несёт день, на который её нажали: с экрана чужого дня форма
+    // откроется на нём, а не на сегодня
+    if (a === 'add') { openAdd(act.dataset.day ? Number(act.dataset.day) : null); return; }
     if (a === 'settings') { openSettings(); return; }
     if (a === 'close') { closeSheets(); return; }
     if (a === 'back') { state.monthDay = null; fresh = true; render(); return; }
@@ -843,7 +866,8 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const title = form.elements.title.value;
   if (!title.trim()) return;
-  await saveTask(title, form.elements.note.value, form.elements.time.value);
+  await saveTask(title, form.elements.note.value,
+                 form.elements.date.value, form.elements.time.value);
   closeSheets();
 });
 

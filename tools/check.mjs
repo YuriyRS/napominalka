@@ -122,18 +122,45 @@ say('сегодня из календаря', await b.evalIn(`JSON.stringify({
   кнопка_добавить: !!document.querySelector('.add-btn'),
 })`));
 
-// а у чужого дня ничего этого быть не должно: форма спрашивает только
-// время, и дело с чужого дня молча уехало бы на сегодня
+// Чужой день: линии «сейчас» и «Просрочено» быть не должно, а кнопка
+// «Добавить» должна быть — и приводить на этот же день, а не на сегодня.
 await b.evalIn(`document.querySelector('[data-act="back"]').click()`);
-await sleep(300);
-await b.evalIn(`[...document.querySelectorAll('.cal__cell')]
-  .find((c) => !c.classList.contains('cal__cell--today')
-            && !c.classList.contains('cal__cell--off')).click()`);
+await sleep(400);
+const foreignMs = await b.evalIn(`(() => {
+  const cell = [...document.querySelectorAll('.cal__cell')]
+    .find((c) => !c.classList.contains('cal__cell--today')
+              && !c.classList.contains('cal__cell--off'));
+  cell.click();
+  return cell.dataset.day;
+})()`);
 await sleep(500);
 say('чужой день', await b.evalIn(`JSON.stringify({
   дата: document.querySelector('.hero__date')?.textContent,
   линия_сейчас: !!document.querySelector('.now'),
   кнопка_добавить: !!document.querySelector('.add-btn'),
+})`));
+
+// форма, открытая с чужого дня, обязана подставиться на него
+await b.evalIn(`document.querySelector('[data-act="add"]').click()`);
+await sleep(600);
+const wantDate = (() => {
+  const d = new Date(Number(foreignMs));
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+})();
+const gotDate = await b.evalIn(`document.querySelector('#f-date').value`);
+say('дата в форме', JSON.stringify({ ждём: wantDate, в_поле: gotDate, совпало: wantDate === gotDate }));
+
+// и записанное дело остаётся на этом дне
+await b.evalIn(`document.querySelector('#f-title').value = 'Дело не на сегодня'`);
+await b.evalIn(`document.querySelector('#f-time').value = '11:00'`);
+await b.evalIn(`document.querySelector('#task-form [type="submit"]').click()`);
+await sleep(800);
+await b.shot('дело-на-чужой-день');
+say('запись на чужой день', await b.evalIn(`JSON.stringify({
+  остались_в_том_же_дне: document.querySelector('.hero__date')?.textContent,
+  дело_на_месте: [...document.querySelectorAll('.task__title')]
+    .some((e) => e.textContent === 'Дело не на сегодня'),
 })`));
 
 // и возврат обратно
@@ -143,6 +170,14 @@ say('возврат в календарь', await b.evalIn(`JSON.stringify({
   календарь_снова: !!document.querySelector('.cal__grid'),
   месяц: document.querySelector('.cal__title')?.textContent,
 })`));
+
+// Дело, записанное на чужой день, возвращаем поток к исходному набору:
+// иначе оно тянется через все следующие проверки и сдвигает счётчики.
+await b.evalIn(seedExpr(DEMO_DAY));
+await b.navigate(b.url);
+await sleep(1200);
+await b.evalIn(`document.querySelector('[data-tab="month"]').click()`);
+await sleep(400);
 
 // листание месяца
 await b.evalIn(`document.querySelector('[data-act="month-prev"]').click()`);
@@ -229,6 +264,8 @@ await sleep(600);
 await b.shot('лист-добавления');
 say('лист добавления', await b.evalIn(`JSON.stringify({
   открыт: document.querySelector('#sheet').classList.contains('sheet--on'),
+  // по умолчанию — сегодня и время на час вперёд, округлённое до пяти минут
+  дата: document.querySelector('#f-date').value,
   время: document.querySelector('#f-time').value,
 })`));
 

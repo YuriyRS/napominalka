@@ -45,15 +45,23 @@
              placeholder="Купить сыр галанский" required maxlength="120">
     </div>
 
+    <!-- Дата и время стоят рядом и сразу после названия: это главное, что
+         нужно сказать о деле. Заметка — необязательное, поэтому уходит вниз. -->
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="f-date">Какого числа</label>
+        <input class="field__input" id="f-date" name="date" type="date" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="f-time">Во сколько</label>
+        <input class="field__input" id="f-time" name="time" type="time" required>
+      </div>
+    </div>
+
     <div class="field">
       <label class="field__label" for="f-note">Заметка <span>— не обязательно</span></label>
       <input class="field__input" id="f-note" name="note" type="text"
              placeholder="в Пятёрочке у дома" maxlength="160">
-    </div>
-
-    <div class="field">
-      <label class="field__label" for="f-time">Во сколько</label>
-      <input class="field__input" id="f-time" name="time" type="time" required>
     </div>
 
     <div class="sheet__actions">
