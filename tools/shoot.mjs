@@ -9,7 +9,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, DEMO_LATE, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
@@ -20,6 +20,8 @@ const CASES = {
   закрытый:   { tasks: DEMO_DAY.map((t) => ({ ...t, done: true })), dark: false, height: 880 },
   просрочено: { tasks: DEMO_LATE, dark: false, height: 1180 },
   пустой:     { tasks: [], dark: false, height: 760 },
+  месяц:      { tasks: DEMO_MONTH, dark: false, height: 900, tab: 'month' },
+  'месяц-тёмная': { tasks: DEMO_MONTH, dark: true, height: 900, tab: 'month' },
 };
 
 const [name = 'обычный', height] = process.argv.slice(2);
@@ -38,6 +40,12 @@ await browser.evalIn(seedExpr(c.tasks));
 await browser.setSystemTheme(c.dark ? 'dark' : 'light');
 await browser.navigate(browser.url);
 await sleep(1500);
+
+// состояние может задавать вкладку: календарь иначе не снять
+if (c.tab) {
+  await browser.evalIn(`document.querySelector('[data-tab="${c.tab}"]').click()`);
+  await sleep(600);
+}
 
 const file = await browser.shot(name);
 console.log(browser.problems.length ? 'ПРОБЛЕМЫ:\n' + browser.problems.join('\n') : 'консоль чистая');

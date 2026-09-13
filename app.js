@@ -16,6 +16,8 @@ const ICON = {
   check:  '<path d="M3 9l4.5 4.5L15 5"/>',
   spark:  '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.8 2.8M14.9 14.9l2.8 2.8M6.3 17.7l2.8-2.8M14.9 9.1l2.8-2.8"/>',
   gear:   '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.2V4a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/>',
+  chevL:  '<path d="M14.5 6.5L9 12l5.5 5.5"/>',
+  chevR:  '<path d="M9.5 6.5L15 12l-5.5 5.5"/>',
 };
 
 const svg = (d, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
@@ -61,6 +63,8 @@ const state = {
   flash: null,       // id строки, которую нужно подсветить один кадр
   installEvent: null, // отложенное приглашение установки от Chrome, см. ниже
   installOffered: false, // браузер вообще предлагал установку — см. syncInstallRow
+  monthCursor: null,  // первое число показываемого месяца, см. renderMonth
+  monthDay: null,     // полночь выбранного дня, null — показываем календарь
 };
 
 /* ---------- Оформление ---------- */
@@ -99,8 +103,23 @@ let fresh = true;
 function render() {
   const f = fresh ? ' is-fresh' : '';
   fresh = false;
-  if (state.tab === 'today') renderToday(f);
-  if (state.tab === 'month') renderSoon('Месяц', 'Календарь с плотностью задач по дням', 'Этап 2', f);
+  if (state.tab === 'today') {
+    renderDay(f, startOfToday(), { withNow: true, withOverdue: true, withAdd: true });
+  }
+  if (state.tab === 'month') {
+    if (state.monthDay) {
+      // Сегодняшний день выглядит одинаково, откуда бы на него ни смотрели:
+      // тап по «13» в календаре даёт ровно тот же экран, что вкладка
+      // «Сегодня», только с возвратом. Иначе один и тот же день описывался
+      // бы по-разному — «1 дело» здесь и «осталось 1 дело» там.
+      const today = state.monthDay === startOfToday();
+      renderDay(f, state.monthDay, {
+        back: true, withNow: today, withOverdue: today, withAdd: today,
+      });
+    } else {
+      renderMonth(f);
+    }
+  }
   if (state.tab === 'year')  renderSoon('Год', 'Обзор по месяцам — видно, где густо, а где пусто', 'Этап 2', f);
   if (state.tab === 'subs')  renderSoon('Подписки', 'Список подписок, даты списаний и общая сумма', 'Этап 4', f);
   renderNav();
@@ -126,10 +145,23 @@ const TITLES = { month: 'Месяц', year: 'Год', subs: 'Подписки' }
 const gear = `<button class="icon-btn" data-act="settings" aria-label="Настройки">${svg(ICON.gear)}</button>`;
 
 /* На «Сегодня» имя экрана — мелкая надстрочная строка, а не заголовок:
-   крупным шрифтом здесь пишется дата, иначе две доминанты спорят за глаз. */
-const topBar = () => state.tab === 'today'
-  ? `<div class="top top--slim"><span class="top__eyebrow">Сегодня</span>${gear}</div>`
-  : `<div class="top"><h1 class="top__title">${esc(TITLES[state.tab] || '')}</h1>${gear}</div>`;
+   крупным шрифтом здесь пишется дата, иначе две доминанты спорят за глаз.
+   По той же причине на экране выбранного дня в шапке стоит «Месяц»,
+   а не дата: дата уже написана крупно в шапке дня. */
+const topBar = (opts = {}) => (opts.back
+  ? `<div class="top top--slim">
+       <button class="icon-btn" data-act="back" aria-label="К календарю">${svg(ICON.chevL)}</button>
+       <span class="top__eyebrow">Месяц</span>${gear}
+     </div>`
+  // У «Сегодня» ключа в TITLES нет намеренно — имя экрана там пишется
+  // прямо здесь. «Месяц» идёт той же дорогой: крупным шрифтом на нём
+  // пишется «сентябрь 2026», и второй заголовок того же веса спорил бы
+  // с ним за глаз — ровно то, от чего ушли на «Сегодня».
+  : state.tab === 'today'
+    ? `<div class="top top--slim"><span class="top__eyebrow">Сегодня</span>${gear}</div>`
+    : state.tab === 'month'
+      ? `<div class="top top--slim"><span class="top__eyebrow">${esc(TITLES.month)}</span>${gear}</div>`
+      : `<div class="top"><h1 class="top__title">${esc(TITLES[state.tab] || '')}</h1>${gear}</div>`);
 
 /* ---------- Шкала дня ----------
    Дела стоят на своих часах, а не ровными строками: тогда у дня видно
@@ -160,44 +192,13 @@ const gapLabel = (ms) => {
   return rest ? `${h} ч ${pad2(rest)} мин` : `${h} ч`;
 };
 
-function renderToday(f) {
-  const now = new Date();
-  const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(startOfDay); endOfDay.setDate(endOfDay.getDate() + 1);
+/* Строка дела. Вынесена из рендера дня на уровень модуля: её показывают
+   и «Сегодня», и раздел «Просрочено», и день, открытый из календаря.
 
-  const todays = state.tasks
-    .filter((t) => t.at >= startOfDay.getTime() && t.at < endOfDay.getTime())
-    .sort((a, b) => a.at - b.at);
-
-  const active = todays.filter((t) => !t.done);
-  const done   = todays.filter((t) => t.done);
-  const nextId = active.find((t) => t.at >= now.getTime())?.id ?? null;
-  const closed = todays.length > 0 && active.length === 0;
-
-  // Незакрытое с прошлых дней. Раньше оно не показывалось нигде: человек
-  // записал дело, не сделал, и оно молча исчезало — для напоминалки это
-  // худшее, что может случиться.
-  const overdue = state.tasks
-    .filter((t) => !t.done && t.at < startOfDay.getTime())
-    .sort((a, b) => a.at - b.at);
-
-  // флаг «только что отмечено» живёт ровно один кадр — он подсвечивает
-  // строку, чтобы глаз проследил, куда она уехала
-  const flashId = state.flash;
-  state.flash = null;
-
-  const weekday = now.toLocaleDateString('ru-RU', { weekday: 'long' });
-  const dateNum = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-
-  const subText = todays.length === 0
-    ? (overdue.length ? 'на сегодня ничего' : 'свободный день')
-    : closed
-      ? 'всё сделано — отдыхайте'
-      : `осталось ${deeds(active.length)}`;
-
-  // late — дело с прошлого дня: вместо часов показываем «вчера, 15:00»,
-  // иначе непонятно, откуда оно взялось
-  const row = (t, extra = '', late = false) => `
+   late — дело с прошлого дня: вместо часов пишем «вчера, 15:00», иначе
+   непонятно, откуда оно взялось. */
+function taskRow(t, { flashId = null, extra = '', late = false } = {}) {
+  return `
     <li class="task ${t.done ? 'task--done' : ''} ${t.id === flashId ? 'task--flash' : ''} ${extra}" data-id="${esc(t.id)}">
       <button class="task__check" data-act="toggle" aria-pressed="${t.done}"
               aria-label="${t.done ? 'Отменить' : 'Отметить'} «${esc(t.title)}»">
@@ -209,8 +210,19 @@ function renderToday(f) {
         ${t.note ? `<div class="task__note">${esc(t.note)}</div>` : ''}
       </div>
     </li>`;
+}
 
-  // лента дня: между делами — воздух по фактическому разрыву
+/* Лента дел.
+
+   Обычная — с воздухом по фактическому разрыву между делами и, если
+   передан `now`, с линией «сейчас» на её месте среди дел.
+
+   flat — без разрывов и без линии: так идут «Сделано» и «Просрочено»,
+   там дела стоят подряд, и воздух между ними ничего не значил бы. */
+function timeline(tasks, { now = null, nextId = null, flashId = null, flat = false, late = false } = {}) {
+  if (flat) return `<ul class="timeline timeline--flat">${
+    tasks.map((t) => taskRow(t, { flashId, late })).join('')}</ul>`;
+
   let items = '';
   let prevAt = null;
   const push = (at, html) => {
@@ -224,51 +236,102 @@ function renderToday(f) {
     prevAt = at;
   };
 
-  let placed = false;
-  for (const t of active) {
+  let placed = !now;
+  for (const t of tasks) {
     if (!placed && t.at >= now.getTime()) { push(now.getTime(), nowLine(now)); placed = true; }
-    push(t.at, row(t, t.id === nextId ? 'task--next' : ''));
+    push(t.at, taskRow(t, { flashId, extra: t.id === nextId ? 'task--next' : '' }));
   }
-  if (active.length && !placed) push(now.getTime(), nowLine(now));
+  if (tasks.length && !placed) push(now.getTime(), nowLine(now));
+
+  return `<ul class="timeline">${items}</ul>`;
+}
+
+/* Один и тот же рендер на два экрана: «Сегодня» и день, выбранный
+   в календаре. Отличия собраны во флагах, а не размножены копией.
+
+   withNow     — линия «сейчас» на своём месте среди дел;
+   withOverdue — раздел «Просрочено». Он бывает только у сегодняшнего дня:
+                 незакрытое с прошлых дней относится к сегодня, а не к
+                 произвольной дате, и показывать его на 10 сентября незачем;
+   withAdd     — кнопка «Добавить». У чужого дня её нет: форма спрашивает
+                 только время, не дату, и дело молча уехало бы на сегодня;
+   back        — шапка со стрелкой возврата к календарю. */
+function renderDay(f, dayMs, {
+  withNow = false, withOverdue = false, withAdd = false, back = false,
+} = {}) {
+  const now = new Date();
+  const startOfDay = new Date(dayMs); startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(startOfDay); endOfDay.setDate(endOfDay.getDate() + 1);
+
+  const dayTasks = state.tasks
+    .filter((t) => t.at >= startOfDay.getTime() && t.at < endOfDay.getTime())
+    .sort((a, b) => a.at - b.at);
+
+  const active = dayTasks.filter((t) => !t.done);
+  const done   = dayTasks.filter((t) => t.done);
+  const nextId = withNow ? (active.find((t) => t.at >= now.getTime())?.id ?? null) : null;
+  const closed = dayTasks.length > 0 && active.length === 0;
+
+  // Незакрытое с прошлых дней. Раньше оно не показывалось нигде: человек
+  // записал дело, не сделал, и оно молча исчезало — для напоминалки это
+  // худшее, что может случиться.
+  const overdue = withOverdue
+    ? state.tasks.filter((t) => !t.done && t.at < startOfDay.getTime()).sort((a, b) => a.at - b.at)
+    : [];
+
+  // флаг «только что отмечено» живёт ровно один кадр — он подсвечивает
+  // строку, чтобы глаз проследил, куда она уехала
+  const flashId = state.flash;
+  state.flash = null;
+
+  const date = new Date(startOfDay);
+  const weekday = date.toLocaleDateString('ru-RU', { weekday: 'long' });
+  const dateNum = date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+
+  // «осталось» и «отдыхайте» — слова сегодняшнего дня. Про 10 сентября
+  // так не скажешь, поэтому у чужого дня подпись просто называет число дел.
+  const subText = dayTasks.length === 0
+    ? (overdue.length ? 'на сегодня ничего' : 'свободный день')
+    : closed
+      ? (withNow ? 'всё сделано — отдыхайте' : 'всё сделано')
+      : (withNow ? `осталось ${deeds(active.length)}` : deeds(active.length));
 
   const dayBlock = active.length ? `
     <div class="section"><h2 class="section__name">День</h2></div>
-    <div class="list${f}"><ul class="timeline">${items}</ul></div>` : '';
+    <div class="list${f}">${timeline(active, { now: withNow ? now : null, nextId, flashId })}</div>` : '';
 
   const doneBlock = done.length ? `
     <div class="section">
       <h2 class="section__name">Сделано</h2>
       <span class="section__meta">${done.length}</span>
     </div>
-    <div class="list list--done${f}"><ul class="timeline timeline--flat">${
-      done.map((t) => row(t)).join('')}</ul></div>` : '';
+    <div class="list list--done${f}">${timeline(done, { flashId, flat: true })}</div>` : '';
 
   const overdueBlock = overdue.length ? `
     <div class="section">
       <h2 class="section__name section__name--late">Просрочено</h2>
       <span class="section__meta">${overdue.length}</span>
     </div>
-    <div class="list list--late${f}"><ul class="timeline timeline--flat">${
-      overdue.map((t) => row(t, '', true)).join('')}</ul></div>` : '';
+    <div class="list list--late${f}">${timeline(overdue, { flashId, flat: true, late: true })}</div>` : '';
 
-  const body = (todays.length || overdue.length)
+  const body = (dayTasks.length || overdue.length)
     ? overdueBlock + dayBlock + doneBlock
     : emptyState(f);
-  const pct = todays.length ? Math.round((done.length / todays.length) * 100) : 0;
+  const pct = dayTasks.length ? Math.round((done.length / dayTasks.length) * 100) : 0;
 
   root.innerHTML = `
-    ${topBar()}
+    ${topBar({ back })}
     <section class="hero${closed ? ' hero--closed' : ''}${f}">
       <h2 class="hero__date">${esc(dateNum)}</h2>
       <p class="hero__sub${closed ? ' hero__sub--done' : ''}">
         ${closed ? svg(ICON.check) : ''}${esc(weekday)} · ${esc(subText)}
       </p>
-      ${todays.length ? `<div class="hero__bar"><i style="width:${pct}%"></i></div>` : ''}
+      ${dayTasks.length ? `<div class="hero__bar"><i style="width:${pct}%"></i></div>` : ''}
     </section>
     ${body}
-    <div class="add-bar">
+    ${withAdd ? `<div class="add-bar">
       <button class="add-btn" data-act="add">${svg(ICON.plus)}Добавить</button>
-    </div>`;
+    </div>` : ''}`;
 }
 
 function nowLine(now) {
@@ -292,6 +355,79 @@ function renderSoon(title, text, stage, f) {
       <p class="soon__text">${esc(text)}.</p>
       <span class="soon__stage">${esc(stage)}</span>
     </div>`;
+}
+
+/* ---------- Календарь месяца ----------
+
+   Смысл экрана — не данные, а спокойствие: видно, где день густой, а где
+   пустой, и что ничего не забыто.
+
+   Плотность показывается цветом И размером точки. На цвет полагаться
+   нельзя — его различают не все, — поэтому уровни отличаются ещё и на
+   глаз: точка растёт 5 → 6.5 → 8 px. Число дел при этом лежит в подписи
+   клетки, её читает экранный диктор.
+
+   Сетка всегда шесть строк. В одном месяце пять недель, в другом шесть,
+   и при перелистывании экран прыгал бы по высоте. */
+
+const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+const densityLevel = (n) => (n === 0 ? 0 : n <= 2 ? 1 : n <= 5 ? 2 : 3);
+
+function renderMonth(f) {
+  if (state.monthCursor === null) state.monthCursor = firstOfMonth(new Date());
+
+  const cursor = new Date(state.monthCursor);
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+
+  // неделя с понедельника: getDay() считает от воскресенья
+  const lead = (new Date(year, month, 1).getDay() + 6) % 7;
+
+  // сколько дел в каждом дне — одним проходом по уже загруженному списку,
+  // а не сорока двумя запросами к базе
+  const counts = new Map();
+  for (const t of state.tasks) {
+    const d = new Date(t.at); d.setHours(0, 0, 0, 0);
+    const key = d.getTime();
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const todayMs = startOfToday();
+  let cells = '';
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(year, month, 1 - lead + i);
+    d.setHours(0, 0, 0, 0);
+    const ms = d.getTime();
+    const n = counts.get(ms) || 0;
+    const cls = ['cal__cell',
+      d.getMonth() !== month ? 'cal__cell--off' : '',
+      ms === todayMs ? 'cal__cell--today' : ''].filter(Boolean).join(' ');
+    const label = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+      + (n ? `, ${deeds(n)}` : ', дел нет');
+    cells += `<button class="${cls}" data-act="day" data-day="${ms}" aria-label="${esc(label)}">
+      <span class="cal__num">${d.getDate()}</span>
+      <span class="cal__dot" data-level="${densityLevel(n)}"></span>
+    </button>`;
+  }
+
+  root.innerHTML = `
+    ${topBar()}
+    <div class="cal${f}">
+      <div class="cal__head">
+        <button class="icon-btn" data-act="month-prev" aria-label="Предыдущий месяц">${svg(ICON.chevL)}</button>
+        <h2 class="cal__title">${esc(cursor.toLocaleDateString('ru-RU', { month: 'long' }))} ${year}</h2>
+        <button class="icon-btn" data-act="month-next" aria-label="Следующий месяц">${svg(ICON.chevR)}</button>
+      </div>
+      <div class="cal__week" aria-hidden="true">${
+        WEEKDAYS.map((w) => `<span>${w}</span>`).join('')}</div>
+      <div class="cal__grid">${cells}</div>
+    </div>`;
+}
+
+/** Полночь первого числа того месяца, в который попадает дата. */
+function firstOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
 }
 
 /* ---------- Листы ---------- */
@@ -563,7 +699,16 @@ async function refresh() {
 
 document.addEventListener('click', async (e) => {
   const tabBtn = e.target.closest('[data-tab]');
-  if (tabBtn) { state.tab = tabBtn.dataset.tab; fresh = true; render(); return; }
+  if (tabBtn) {
+    const tab = tabBtn.dataset.tab;
+    // вход на «Месяц» всегда показывает календарь: если человек был
+    // в открытом дне, повторный тап по вкладке возвращает его назад
+    if (tab === 'month') state.monthDay = null;
+    state.tab = tab;
+    fresh = true;
+    render();
+    return;
+  }
 
   const act = e.target.closest('[data-act]');
   if (act) {
@@ -571,6 +716,22 @@ document.addEventListener('click', async (e) => {
     if (a === 'add') { openAdd(); return; }
     if (a === 'settings') { openSettings(); return; }
     if (a === 'close') { closeSheets(); return; }
+    if (a === 'back') { state.monthDay = null; fresh = true; render(); return; }
+    if (a === 'month-prev' || a === 'month-next') {
+      const c = new Date(state.monthCursor);
+      state.monthCursor = new Date(
+        c.getFullYear(), c.getMonth() + (a === 'month-next' ? 1 : -1), 1).getTime();
+      state.monthDay = null;
+      fresh = true;
+      render();
+      return;
+    }
+    if (a === 'day') {
+      state.monthDay = Number(act.dataset.day);
+      fresh = true;
+      render();
+      return;
+    }
     if (a === 'export') { exportBackup(); return; }
     if (a === 'import') { document.getElementById('import-file').click(); return; }
     if (a === 'install') {
@@ -706,7 +867,11 @@ setInterval(() => {
   const crossed = state.tasks.some((t) => t.at > prevNow && t.at <= now);
   prevNow = now;
 
-  if (state.tab !== 'today') return;
+  // Живёт только тот экран, на котором идёт сегодняшняя лента. День,
+  // открытый из календаря, — такой же живой, если он сегодняшний.
+  const live = state.tab === 'today'
+    || (state.tab === 'month' && state.monthDay === startOfToday());
+  if (!live) return;
   if (rolled) { refresh(); return; }
   if (crossed) { render(); return; }
 

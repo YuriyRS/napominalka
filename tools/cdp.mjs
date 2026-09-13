@@ -227,3 +227,29 @@ export const DEMO_LATE = [
   { id: 'b2', title: 'Записаться на приём к врачу', note: '', h: 16, m: 30, daysAgo: 3, done: false },
   ...DEMO_DAY,
 ];
+
+/** Разброс по месяцу — чтобы в календаре были видны все четыре уровня
+    плотности. Отрицательный daysAgo — будущие дни: seedExpr считает дату
+    как «сегодня минус daysAgo дней». */
+export const DEMO_MONTH = [
+  { id: 'm01', title: 'Продлить страховку', note: '', h: 11, m: 0, daysAgo: 18, done: true },
+  { id: 'm02', title: 'Сдать анализы', note: '', h: 9, m: 0, daysAgo: 12, done: true },
+  { id: 'm03', title: 'Записаться к стоматологу', note: '', h: 12, m: 10, daysAgo: 12, done: true },
+  { id: 'm04', title: 'Оплатить интернет', note: '', h: 19, m: 0, daysAgo: 12, done: true },
+  { id: 'm05', title: 'Забрать посылку', note: '', h: 18, m: 0, daysAgo: 7, done: false },
+  { id: 'm06', title: 'Позвонить маме', note: '', h: 20, m: 0, daysAgo: 3, done: true },
+  { id: 'm07', title: 'Купить корм коту', note: '', h: 16, m: 0, daysAgo: 3, done: false },
+  ...DEMO_DAY,
+  { id: 'm08', title: 'Забрать велосипед из ремонта', note: '', h: 18, m: 30, daysAgo: -2, done: false },
+  { id: 'm09', title: 'Встреча с врачом', note: '', h: 10, m: 0, daysAgo: -2, done: false },
+  { id: 'm10', title: 'Оплатить квартиру', note: 'до 25-го', h: 12, m: 0, daysAgo: -2, done: false },
+  { id: 'm11', title: 'Записаться на приём', note: '', h: 15, m: 0, daysAgo: -2, done: false },
+  { id: 'm12', title: 'Продлить домен', note: '', h: 13, m: 0, daysAgo: -5, done: false },
+  { id: 'm13', title: 'День рождения Сергея', note: 'подарок', h: 10, m: 0, daysAgo: -9, done: false },
+  { id: 'm14', title: 'Купить продукты на неделю', note: '', h: 11, m: 0, daysAgo: -9, done: false },
+  { id: 'm15', title: 'Отвезти документы', note: '', h: 12, m: 0, daysAgo: -9, done: false },
+  { id: 'm16', title: 'Записаться в бассейн', note: '', h: 14, m: 0, daysAgo: -9, done: false },
+  { id: 'm17', title: 'Съездить на дачу', note: '', h: 16, m: 0, daysAgo: -9, done: false },
+  { id: 'm18', title: 'Починить кран', note: '', h: 17, m: 30, daysAgo: -9, done: false },
+  { id: 'm19', title: 'Оплатить электричество', note: '', h: 20, m: 15, daysAgo: -9, done: false },
+];

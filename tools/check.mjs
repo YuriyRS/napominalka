@@ -8,7 +8,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, DEMO_LATE, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
@@ -92,9 +92,71 @@ await sleep(400);
 
 await b.evalIn(`document.querySelector('[data-tab="month"]').click()`);
 await sleep(400);
-say('вкладка «Месяц»', await b.evalIn(`JSON.stringify({
-  заголовок: document.querySelector('.top__title')?.textContent,
-  заглушка: !!document.querySelector('.soon'),
+say('календарь', await b.evalIn(`JSON.stringify({
+  месяц: document.querySelector('.cal__title')?.textContent,
+  клеток: document.querySelectorAll('.cal__cell').length,
+  дней_недели: [...document.querySelectorAll('.cal__week span')].map((e) => e.textContent).join(''),
+  первая_клетка: document.querySelector('.cal__cell .cal__num')?.textContent,
+  сегодня: document.querySelector('.cal__cell--today .cal__num')?.textContent,
+  // в этом наборе дела есть только у сегодняшнего дня, и их шесть
+  сегодня_уровень: document.querySelector('.cal__cell--today .cal__dot')?.dataset.level,
+  у_пустого_дня: [...document.querySelectorAll('.cal__cell')]
+    .map((c) => c.querySelector('.cal__dot').dataset.level).filter((l) => l === '0').length,
+})`));
+
+// зона нажатия по дню: план требует не меньше 48 px
+say('зона дня', await b.evalIn(`(() => {
+  const r = document.querySelector('.cal__cell').getBoundingClientRect();
+  return JSON.stringify({ ширина: Math.round(r.width), высота: Math.round(r.height) });
+})()`));
+
+// тап по сегодняшнему дню обязан дать ровно тот же экран, что вкладка
+// «Сегодня»: линия «сейчас», раздел «Просрочено» и кнопка «Добавить»
+await b.evalIn(`document.querySelector('.cal__cell--today').click()`);
+await sleep(500);
+await b.shot('день-из-календаря');
+say('сегодня из календаря', await b.evalIn(`JSON.stringify({
+  дата: document.querySelector('.hero__date')?.textContent,
+  дел_в_ленте: document.querySelectorAll('.task').length,
+  линия_сейчас: !!document.querySelector('.now'),
+  кнопка_добавить: !!document.querySelector('.add-btn'),
+})`));
+
+// а у чужого дня ничего этого быть не должно: форма спрашивает только
+// время, и дело с чужого дня молча уехало бы на сегодня
+await b.evalIn(`document.querySelector('[data-act="back"]').click()`);
+await sleep(300);
+await b.evalIn(`[...document.querySelectorAll('.cal__cell')]
+  .find((c) => !c.classList.contains('cal__cell--today')
+            && !c.classList.contains('cal__cell--off')).click()`);
+await sleep(500);
+say('чужой день', await b.evalIn(`JSON.stringify({
+  дата: document.querySelector('.hero__date')?.textContent,
+  линия_сейчас: !!document.querySelector('.now'),
+  кнопка_добавить: !!document.querySelector('.add-btn'),
+})`));
+
+// и возврат обратно
+await b.evalIn(`document.querySelector('[data-act="back"]').click()`);
+await sleep(400);
+say('возврат в календарь', await b.evalIn(`JSON.stringify({
+  календарь_снова: !!document.querySelector('.cal__grid'),
+  месяц: document.querySelector('.cal__title')?.textContent,
+})`));
+
+// листание месяца
+await b.evalIn(`document.querySelector('[data-act="month-prev"]').click()`);
+await sleep(400);
+say('месяц назад', await b.evalIn(`document.querySelector('.cal__title')?.textContent`));
+await b.evalIn(`document.querySelector('[data-act="month-next"]').click()`);
+await sleep(400);
+say('месяц вперёд', await b.evalIn(`document.querySelector('.cal__title')?.textContent`));
+
+await b.evalIn(`document.querySelector('[data-tab="today"]').click()`);
+await sleep(600);
+say('возврат', await b.evalIn(`JSON.stringify({
+  дата: document.querySelector('.hero__date')?.textContent,
+  вкладка: document.querySelector('.nav__item--active')?.dataset.tab,
 })`));
 
 await b.evalIn(`document.querySelector('[data-tab="today"]').click()`);
@@ -301,6 +363,37 @@ say('установка: браузер не умеет', await rowState());
 await b.shot('установка-не-умеет');
 await b.evalIn(`document.querySelector('[data-act="close"]').click()`);
 await sleep(300);
+
+// ---------- плотность в календаре ----------
+
+/* Проверять её на DEMO_DAY бессмысленно: там дела есть только у сегодня,
+   и все точки либо пустые, либо максимальные. Нужен разброс по месяцу. */
+await b.evalIn(seedExpr(DEMO_MONTH));
+await b.navigate(b.url);
+await sleep(1500);
+await b.evalIn(`document.querySelector('[data-tab="month"]').click()`);
+await sleep(600);
+await b.shot('месяц');
+say('плотность', await b.evalIn(`(() => {
+  const dots = [...document.querySelectorAll('.cal__cell .cal__dot')];
+  const по_уровням = {};
+  for (const d of dots) {
+    const l = d.dataset.level;
+    по_уровням[l] = (по_уровням[l] || 0) + 1;
+  }
+  // цвет и размер должны расти вместе: на цвет полагаться нельзя
+  const ширина = (l) => {
+    const d = dots.find((x) => x.dataset.level === l);
+    return d ? parseFloat(getComputedStyle(d).width) : null;
+  };
+  return JSON.stringify({
+    по_уровням,
+    ширина_1: ширина('1'),
+    ширина_2: ширина('2'),
+    ширина_3: ширина('3'),
+    растёт: ширина('1') < ширина('2') && ширина('2') < ширина('3'),
+  });
+})()`));
 
 console.log(b.problems.length ? '\nПРОБЛЕМЫ:\n' + b.problems.join('\n') : '\nконсоль чистая');
 
