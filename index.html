@@ -59,6 +59,33 @@
     </div>
 
     <div class="field">
+      <label class="field__label" for="f-repeat">Повторять</label>
+      <div class="select">
+        <select class="field__input" id="f-repeat" name="repeat">
+          <option value="">Не повторять</option>
+          <option value="daily">Каждый день</option>
+          <option value="weekly">По дням недели</option>
+          <option value="monthly">По числам месяца</option>
+        </select>
+      </div>
+      <div class="field__hint" id="f-repeat-hint" hidden></div>
+    </div>
+
+    <!-- Раскрывается, только когда выбран повтор по дням недели -->
+    <div class="field" id="f-weekdays" hidden>
+      <div class="field__label">В какие дни</div>
+      <div class="weekdays" role="group" aria-label="Дни недели">
+        <button type="button" data-wd="1" aria-pressed="false">Пн</button>
+        <button type="button" data-wd="2" aria-pressed="false">Вт</button>
+        <button type="button" data-wd="3" aria-pressed="false">Ср</button>
+        <button type="button" data-wd="4" aria-pressed="false">Чт</button>
+        <button type="button" data-wd="5" aria-pressed="false">Пт</button>
+        <button type="button" data-wd="6" aria-pressed="false">Сб</button>
+        <button type="button" data-wd="0" aria-pressed="false">Вс</button>
+      </div>
+    </div>
+
+    <div class="field">
       <label class="field__label" for="f-note">Заметка <span>— не обязательно</span></label>
       <input class="field__input" id="f-note" name="note" type="text"
              placeholder="в Пятёрочке у дома" maxlength="160">
@@ -158,6 +185,30 @@
         <path d="M6.6 6.5l.85 12.4a1.6 1.6 0 0 0 1.6 1.6h5.9a1.6 1.6 0 0 0 1.6-1.6l.85-12.4"/>
       </svg>Удалить
     </button>
+  </div>
+</section>
+
+<!-- лист: дело повторяется — что именно трогаем.
+     Отдельный лист, а не вопрос внутри листа действий: у вопроса свои
+     две кнопки с длинными подписями, и в чужой столбик они не влезут -->
+<section class="sheet" id="scope-sheet" role="dialog" aria-modal="true" aria-labelledby="scope-title">
+  <div class="sheet__grip"></div>
+  <h2 class="sheet__title sheet__title--task" id="scope-title"></h2>
+  <p class="sheet__hint">Это повторяющееся дело. Что меняем?</p>
+
+  <div class="acts">
+    <button class="act" type="button" data-act="scope-one">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+      <span id="scope-one-label">Только этот день</span>
+    </button>
+    <button class="act" type="button" data-act="scope-all">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+      <span id="scope-all-label">Всё будущее</span>
+    </button>
+  </div>
+
+  <div class="sheet__actions">
+    <button class="btn btn--ghost" type="button" data-act="close">Отмена</button>
   </div>
 </section>
 

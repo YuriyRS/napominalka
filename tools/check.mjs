@@ -8,7 +8,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
@@ -431,6 +431,111 @@ say('плотность', await b.evalIn(`(() => {
     растёт: ширина('1') < ширина('2') && ширина('2') < ширина('3'),
   });
 })()`));
+
+// ---------- повторы ----------
+
+/* Тоже в конце и на своём наборе: серия размножается на год вперёд,
+   и все счётчики выше поехали бы. */
+
+const seedRepeat = async () => {
+  await b.evalIn(seedExpr(DEMO_REPEAT));
+  await b.navigate(b.url);
+  await sleep(1800);
+};
+const dayCell = (ms) => `document.querySelector('.cal__cell[data-day="${ms}"]')`;
+const midnight = (plus) => { const d = new Date(); d.setDate(d.getDate() + plus); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const todayMs = midnight(0);
+const tomorrowMs = midnight(1);
+const repeatRowId = `[...document.querySelectorAll('.task')].find((r) => r.querySelector('.task__repeat'))?.dataset.id`;
+const hasRow = (id) => `[...document.querySelectorAll('.task')].some((r) => r.dataset.id === ${JSON.stringify(String(id))})`;
+
+await seedRepeat();
+await b.shot('повтор');
+say('повтор в ленте', await b.evalIn(`JSON.stringify({
+  значков_повтора: document.querySelectorAll('.task__repeat').length,
+  просрочено: document.querySelectorAll('.list--late .task').length,
+})`));
+
+// размножение: зарядка каждый день, значит в сетке месяца занят каждый день
+await b.evalIn(`document.querySelector('[data-tab="month"]').click()`);
+await sleep(500);
+say('размножение', await b.evalIn(`(() => {
+  const dots = [...document.querySelectorAll('.cal__cell .cal__dot')];
+  return JSON.stringify({
+    занятых_дней: dots.filter((d) => d.dataset.level !== '0').length,
+    клеток: dots.length,
+  });
+})()`));
+
+// удаляем ОДНО вхождение — сегодняшнее
+await b.evalIn(`document.querySelector('[data-tab="today"]').click()`);
+await sleep(500);
+const oneId = await b.evalIn(repeatRowId);
+await longPress(`[data-id="${oneId}"]`);
+await b.evalIn(`document.querySelector('[data-act="delete"]').click()`);
+await sleep(500);
+await b.shot('вопрос-о-серии');
+say('вопрос о серии', await b.evalIn(`JSON.stringify({
+  лист: document.querySelector('#scope-sheet').classList.contains('sheet--on'),
+  одна: document.querySelector('#scope-one-label').textContent,
+  все: document.querySelector('#scope-all-label').textContent,
+})`));
+
+await b.evalIn(`document.querySelector('[data-act="scope-one"]').click()`);
+await sleep(600);
+say('удалён один день', await b.evalIn(`JSON.stringify({
+  в_ленте: ${hasRow(oneId)},
+  всего: document.querySelectorAll('.task').length,
+  полоска_вернуть: document.querySelector('#undo').classList.contains('undo--on'),
+})`));
+
+/* Главная проверка: зарубка должна удержать место в расписании, иначе
+   syncSeries при следующем запуске создаст удалённое заново. */
+await b.navigate(b.url);
+await sleep(1800);
+say('после перезагрузки', await b.evalIn(`JSON.stringify({
+  вернулось: [...document.querySelectorAll('.task')].some((r) => r.dataset.id === '${oneId}'),
+  всего: document.querySelectorAll('.task').length,
+})`));
+
+// а теперь отменяем серию целиком от завтрашнего дня
+await seedRepeat();
+await b.evalIn(`document.querySelector('[data-tab="month"]').click()`);
+await sleep(500);
+await b.evalIn(`${dayCell(tomorrowMs)}.click()`);
+await sleep(600);
+const tomorrowId = await b.evalIn(repeatRowId);
+await longPress(`[data-id="${tomorrowId}"]`);
+await b.evalIn(`document.querySelector('[data-act="delete"]').click()`);
+await sleep(500);
+await b.evalIn(`document.querySelector('[data-act="scope-all"]').click()`);
+await sleep(700);
+say('серия отменена', await b.evalIn(`JSON.stringify({
+  завтра_осталось: ${hasRow(tomorrowId)},
+  всего_в_дне: document.querySelectorAll('.task').length,
+})`));
+
+await b.navigate(b.url);
+await sleep(1800);
+await b.evalIn(`document.querySelector('[data-tab="month"]').click()`);
+await sleep(500);
+say('после перезагрузки', await b.evalIn(`(() => {
+  const dots = [...document.querySelectorAll('.cal__cell .cal__dot')];
+  return JSON.stringify({
+    занятых_дней: dots.filter((d) => d.dataset.level !== '0').length,
+    сегодня_уровень: ${dayCell(todayMs)}?.querySelector('.cal__dot')?.dataset.level,
+  });
+})()`));
+
+/* И то же самое глазами в завтрашнем дне: отменённая серия не должна
+   ожить на следующем запуске. Раньше оживала — предел repeatEnd был
+   включающим, и вхождение ровно в этот момент создавалось заново. */
+await b.evalIn(`${dayCell(tomorrowMs)}.click()`);
+await sleep(600);
+say('завтра после отмены', await b.evalIn(`JSON.stringify({
+  дел: document.querySelectorAll('.task').length,
+  линия_сейчас: !!document.querySelector('.now'),
+})`));
 
 console.log(b.problems.length ? '\nПРОБЛЕМЫ:\n' + b.problems.join('\n') : '\nконсоль чистая');
 

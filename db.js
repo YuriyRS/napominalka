@@ -60,10 +60,25 @@ export function remove(id) {
   return tx('readwrite', (s) => s.delete(id));
 }
 
-/** Заменить весь список — нужно для импорта из копии. */
-export async function replaceAll(tasks) {
-  await tx('readwrite', (s) => s.clear());
-  for (const t of tasks) await put(t);
+/** Записать пачку за одну транзакцию.
+
+    У серии повторов на год набирается триста шестьдесят пять записей,
+    и поодиночке это триста шестьдесят пять транзакций подряд — заметная
+    пауза на ровном месте. Пачкой — одна. */
+export function putMany(tasks) {
+  if (!tasks.length) return Promise.resolve();
+  return tx('readwrite', (s) => { for (const t of tasks) s.put(t); });
+}
+
+/** Заменить весь список — нужно для импорта из копии.
+
+    Очистка и запись идут в одной транзакции: раньше между ними можно было
+    упасть и остаться с половиной списка. */
+export function replaceAll(tasks) {
+  return tx('readwrite', (s) => {
+    s.clear();
+    for (const t of tasks) s.put(t);
+  });
 }
 
 /** Простой идентификатор. crypto.randomUUID есть не везде, поэтому запасной путь. */

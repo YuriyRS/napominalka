@@ -1002,6 +1002,83 @@ input  { font: inherit; color: inherit; }
 .cal__dot[data-level="2"] { background: var(--dens-2); width: 6.5px; height: 6.5px; }
 .cal__dot[data-level="3"] { background: var(--dens-3); width: 8px; height: 8px; }
 
+/* ---------- Повторяющиеся дела ---------- */
+
+/* Первый <select> в проекте. Системную стрелку убираем: она садится
+   на наши отступы, и поле перестаёт быть похожим на соседние. Вместо неё
+   своя галочка — уголком из двух рамок, чтобы красилась currentColor
+   и работала в обеих темах. */
+.select { position: relative; display: block; }
+
+.select select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 44px;
+}
+
+.select::after {
+  content: "";
+  position: absolute;
+  right: 19px;
+  top: 50%;
+  width: 8px; height: 8px;
+  margin-top: -5px;
+  border-right: 2px solid var(--ink-muted);
+  border-bottom: 2px solid var(--ink-muted);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.field__hint {
+  margin-top: 7px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+/* Дни недели. Семь штук в строку: на узком телефоне выходит около 43 px
+   в ширину, поэтому высоту держим 48 — по площади палец попадает. */
+.weekdays { display: flex; gap: 5px; }
+
+.weekdays button {
+  flex: 1;
+  min-height: 48px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 620;
+  transition: background .18s var(--ease-out), color .18s var(--ease-out),
+              border-color .18s var(--ease-out), transform .18s var(--ease-spring);
+}
+
+.weekdays button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.weekdays button:active { transform: scale(.93); }
+
+/* Значок у дела, которое повторяется: иначе не отличить его от обычного */
+.task__repeat {
+  width: 13px; height: 13px;
+  margin-left: 6px;
+  vertical-align: -2px;
+  stroke: var(--ink-muted);
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sheet__hint {
+  margin: -10px 0 16px;
+  font-size: 14px;
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
 /* ---------- Уменьшение движения ---------- */
 
 @media (prefers-reduced-motion: reduce) {

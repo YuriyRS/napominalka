@@ -18,6 +18,7 @@ const ICON = {
   gear:   '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.2V4a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1z"/>',
   chevL:  '<path d="M14.5 6.5L9 12l5.5 5.5"/>',
   chevR:  '<path d="M9.5 6.5L15 12l-5.5 5.5"/>',
+  repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
 };
 
 const svg = (d, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
@@ -59,6 +60,11 @@ function plural(n, one, few, many) {
 }
 
 const deeds = (n) => `${n} ${plural(n, 'дело', 'дела', 'дел')}`;
+
+/* Зарубка — это не дело, а место удалённого вхождения серии. Она остаётся
+   в расписании и занимает своё место, чтобы досоздание не вернуло удалённое
+   обратно, но показывать её негде. */
+const shown = (t) => !t.skipped;
 
 /* ---------- Состояние ---------- */
 
@@ -218,7 +224,9 @@ function taskRow(t, { flashId = null, extra = '', late = false } = {}) {
         ${svg(ICON.check)}
       </button>
       <div class="task__body">
-        <div class="task__time">${late ? esc(whenLabel(t.at)) : hhmm(t.at)}</div>
+        <div class="task__time">${late ? esc(whenLabel(t.at)) : hhmm(t.at)}${isRepeat(t)
+          ? `<svg class="task__repeat" viewBox="0 0 24 24" aria-hidden="true">${ICON.repeat}</svg>`
+            + '<span class="visually-hidden">, повторяется</span>' : ''}</div>
         <div class="task__title">${esc(t.title)}</div>
         ${t.note ? `<div class="task__note">${esc(t.note)}</div>` : ''}
       </div>
@@ -277,7 +285,7 @@ function renderDay(f, dayMs, {
   const endOfDay = new Date(startOfDay); endOfDay.setDate(endOfDay.getDate() + 1);
 
   const dayTasks = state.tasks
-    .filter((t) => t.at >= startOfDay.getTime() && t.at < endOfDay.getTime())
+    .filter((t) => shown(t) && t.at >= startOfDay.getTime() && t.at < endOfDay.getTime())
     .sort((a, b) => a.at - b.at);
 
   const active = dayTasks.filter((t) => !t.done);
@@ -288,8 +296,14 @@ function renderDay(f, dayMs, {
   // Незакрытое с прошлых дней. Раньше оно не показывалось нигде: человек
   // записал дело, не сделал, и оно молча исчезало — для напоминалки это
   // худшее, что может случиться.
+  //
+  // Повторы сюда не попадают намеренно. Не сделал вчерашнюю зарядку — сегодня
+  // её тут нет: следующий раз всё равно наступит, а вечный долг — ровно то,
+  // от чего в этом приложении уходили.
   const overdue = withOverdue
-    ? state.tasks.filter((t) => !t.done && t.at < startOfDay.getTime()).sort((a, b) => a.at - b.at)
+    ? state.tasks
+        .filter((t) => shown(t) && !t.done && !t.seriesId && t.at < startOfDay.getTime())
+        .sort((a, b) => a.at - b.at)
     : [];
 
   // флаг «только что отмечено» живёт ровно один кадр — он подсвечивает
@@ -401,6 +415,7 @@ function renderMonth(f) {
   // а не сорока двумя запросами к базе
   const counts = new Map();
   for (const t of state.tasks) {
+    if (!shown(t)) continue;
     const d = new Date(t.at); d.setHours(0, 0, 0, 0);
     const key = d.getTime();
     counts.set(key, (counts.get(key) || 0) + 1);
@@ -449,6 +464,7 @@ const sheets = {
   add:      document.getElementById('sheet'),
   settings: document.getElementById('settings'),
   task:     document.getElementById('task-sheet'),
+  scope:    document.getElementById('scope-sheet'),
 };
 const scrim = document.getElementById('sheet-back');
 const undoEl = document.getElementById('undo');
@@ -478,6 +494,8 @@ function openAdd(dayMs = null) {
   form.reset();
   form.elements.date.value = dateValue(dayMs ?? Date.now());
   form.elements.time.value = defaultTime();
+  setWeekdays([]);            // чипсы — кнопки, form.reset() их не трогает
+  syncRepeatFields();
   sheetTitle.textContent = 'Новое дело';
   submitBtn.textContent = 'Добавить';
   openSheet('add');
@@ -494,6 +512,9 @@ function openEdit(id) {
   // на своём дне, а не прыгает на сегодня — без отдельной охраны
   form.elements.date.value = dateValue(t.at);
   form.elements.time.value = hhmm(t.at);
+  repeatSelect.value = t.repeat ? t.repeat.kind : '';
+  setWeekdays(t.repeat && t.repeat.days ? t.repeat.days : []);
+  syncRepeatFields();
   sheetTitle.textContent = 'Изменить дело';
   submitBtn.textContent = 'Сохранить';
   openSheet('add');
@@ -597,32 +618,268 @@ window.addEventListener('appinstalled', () => {
   syncInstallRow();
 });
 
-/* ---------- Действия ---------- */
+/* ---------- Повторы ----------
 
-/* Новое дело и изменённое идут одним путём: форма одна, отличается только
-   тем, есть ли state.editing. Дата и часы приходят двумя полями и здесь
-   складываются в одно местное время — тем же способом, что и раньше, когда
-   дата бралась от сегодня. */
-async function saveTask(title, note, date, time) {
-  const [y, mo, d] = date.split('-').map(Number);
-  const [h, m] = time.split(':').map(Number);
-  const at = new Date(y, mo - 1, d, h, m, 0, 0).getTime();
+   Вхождения повтора — обычные дела в той же таблице, а не правило,
+   вычисляемое на лету. Причина в одной строчке: открытие листа действий,
+   правка, отметка, перенос и удаление ищут дело через
+   `state.tasks.find((x) => x.id === id)`. Вхождение, которого там нет, они
+   не найдут и молча ничего не сделают — а размножение даёт всё это даром.
 
-  const old = state.editing ? state.tasks.find((x) => x.id === state.editing) : null;
+   Плата — место: год ежедневного дела это 365 записей. */
 
-  await db.put(old
-    ? { ...old, title: title.trim(), note: note.trim(), at }
-    : {
+const REPEAT_HORIZON_DAYS = 365;
+
+const isRepeat = (t) => Boolean(t.seriesId);
+
+/** Ключ потока досоздания.
+
+    Правило у серии может смениться — когда правят «всё будущее», — и тогда
+    это уже другой поток: свой якорь, свой хвост. Поэтому в ключе и якорь,
+    и само правило, а не один seriesId. */
+const streamKey = (t) => [
+  t.seriesId, t.repeat.anchor, t.repeat.kind, (t.repeat.days || []).join('.'),
+].join('|');
+
+function makeRule(kind, weekdays, anchorAt) {
+  return {
+    kind,
+    days: kind === 'weekly' ? [...weekdays].sort((a, b) => a - b) : [],
+    anchor: anchorAt,
+  };
+}
+
+/** Перебирает даты, когда серия должна случиться: от якоря до untilMs.
+    `visit` получает время; вернуть false — остановиться.
+
+    Предел **исключающий**: вхождение ровно в untilMs уже не создаётся.
+    Так repeatEnd читается буквально — «дальше этого времени вхождений нет»,
+    — и отменённая серия не оживает на следующий же день.
+
+    Идём от якоря, а не от последнего вхождения: у месячного правила
+    с 31-м числом последнее в феврале — 28-е, и шаг от него дал бы 28 марта
+    вместо 31-го. Ходьба от якоря всегда даёт настоящий день месяца. */
+function eachOccurrence(repeat, untilMs, visit) {
+  const anchor = new Date(repeat.anchor);
+  const h = anchor.getHours(), m = anchor.getMinutes();
+  const at = (day) => { const x = new Date(day); x.setHours(h, m, 0, 0); return x.getTime(); };
+
+  if (repeat.kind === 'monthly') {
+    const day = anchor.getDate();
+    const cur = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    for (;;) {
+      // в коротком месяце берём последний день: 31-е в феврале — это 28-е
+      const last = new Date(cur.getFullYear(), cur.getMonth() + 1, 0).getDate();
+      const d = new Date(cur.getFullYear(), cur.getMonth(), Math.min(day, last));
+      const ms = at(d);
+      if (ms >= untilMs) return;
+      if (visit(ms) === false) return;
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  }
+
+  const days = repeat.days || [];
+  for (const d = new Date(anchor); ; d.setDate(d.getDate() + 1)) {
+    const ms = at(d);
+    if (ms >= untilMs) return;
+    if (repeat.kind === 'weekly' && !days.includes(d.getDay())) continue;
+    if (visit(ms) === false) return;
+  }
+}
+
+/** Досоздать расписания серий до горизонта — года от сегодня.
+
+    Идемпотентна: зарубки занимают свои места, поэтому повторный вызов ничего
+    не создаёт, а удалённое не возвращается. На этом свойстве держится всё
+    остальное, и в стенде оно проверяется отдельно — с перезагрузкой.
+
+    Возвращает true, если что-то дописала: вызывающий тогда перерисует экран. */
+async function syncSeries() {
+  const streams = new Map();
+  for (const t of state.tasks) {
+    if (!t.seriesId || !t.repeat) continue;
+    const key = streamKey(t);
+    if (!streams.has(key)) {
+      streams.set(key, { repeat: t.repeat, sample: t, taken: new Set(), end: Infinity });
+    }
+    const s = streams.get(key);
+    s.taken.add(dateValue(t.at));
+    if (typeof t.repeatEnd === 'number') s.end = Math.min(s.end, t.repeatEnd);
+  }
+  if (!streams.size) return false;
+
+  const until = Date.now() + REPEAT_HORIZON_DAYS * 86_400_000;
+  const fresh = [];
+
+  for (const s of streams.values()) {
+    eachOccurrence(s.repeat, Math.min(until, s.end), (at) => {
+      if (s.taken.has(dateValue(at))) return true;
+      fresh.push({
         id: db.newId(),
-        title: title.trim(),
-        note: note.trim(),
+        title: s.sample.title,
+        note: s.sample.note || '',
         at,
         done: false,
         doneAt: null,
         createdAt: Date.now(),
+        seriesId: s.sample.seriesId,
+        repeat: s.repeat,
       });
+      return true;
+    });
+  }
+
+  if (!fresh.length) return false;
+  await db.putMany(fresh);
+  return true;
+}
+
+/* ---------- Поле повтора в форме ---------- */
+
+const repeatSelect = form.elements.repeat;
+const repeatHint   = document.getElementById('f-repeat-hint');
+const weekdaysRow  = document.getElementById('f-weekdays');
+
+const dayOfField = () => new Date(`${form.elements.date.value}T00:00`).getDay();
+
+const readWeekdays = () => [...weekdaysRow.querySelectorAll('[data-wd]')]
+  .filter((b) => b.getAttribute('aria-pressed') === 'true')
+  .map((b) => Number(b.dataset.wd));
+
+function setWeekdays(days) {
+  for (const b of weekdaysRow.querySelectorAll('[data-wd]')) {
+    b.setAttribute('aria-pressed', String(days.includes(Number(b.dataset.wd))));
+  }
+}
+
+/** Показывает только то, что нужно выбранному виду повтора.
+
+    У месячного числа спрашивать нечего — оно берётся из поля даты, — но
+    сказать об этом надо: иначе непонятно, какое число получилось. */
+function syncRepeatFields() {
+  const kind = repeatSelect.value;
+  weekdaysRow.hidden = kind !== 'weekly';
+  repeatHint.hidden = kind !== 'monthly';
+  if (kind !== 'monthly') return;
+  const day = new Date(`${form.elements.date.value}T00:00`).getDate();
+  repeatHint.textContent = Number.isNaN(day) ? '' : `Каждое ${day}-е число`;
+}
+
+repeatSelect.addEventListener('change', () => {
+  // по умолчанию — тот же день недели, что и у выбранной даты
+  if (repeatSelect.value === 'weekly' && !readWeekdays().length) setWeekdays([dayOfField()]);
+  syncRepeatFields();
+});
+
+form.elements.date.addEventListener('change', syncRepeatFields);
+
+weekdaysRow.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-wd]');
+  if (!b) return;
+  b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+});
+
+/* ---------- Вопрос «этот день или всё будущее» ---------- */
+
+const scopeTitleEl  = document.getElementById('scope-title');
+const scopeOneLabel = document.getElementById('scope-one-label');
+const scopeAllLabel = document.getElementById('scope-all-label');
+
+let scopeResolve = null;
+
+function seriesLabel(repeat) {
+  if (repeat.kind === 'daily') return 'Все следующие дни';
+  if (repeat.kind === 'monthly') return `Все будущие ${new Date(repeat.anchor).getDate()}-е числа`;
+  const names = ['воскресенья', 'понедельники', 'вторники', 'среды', 'четверги', 'пятницы', 'субботы'];
+  return repeat.days.length === 1
+    ? `Все будущие ${names[repeat.days[0]]}`
+    : 'Все будущие дни недели';
+}
+
+/** Спрашивает и ждёт: 'one' | 'all' | null, если человек передумал. */
+function askScope(task) {
+  scopeTitleEl.textContent = task.title;
+  const day = new Date(task.at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  scopeOneLabel.textContent = `Только ${day}`;
+  scopeAllLabel.textContent = seriesLabel(task.repeat);
+  openSheet('scope');
+  return new Promise((resolve) => { scopeResolve = resolve; });
+}
+
+function answerScope(value) {
+  const waiter = scopeResolve;
+  scopeResolve = null;
+  closeSheets();
+  if (waiter) waiter(value);
+}
+
+/** Закрыть лист вообще. Если висит вопрос — отвечаем «передумал»:
+    иначе ожидающий код остался бы ждать навсегда. */
+function dismiss() {
+  if (scopeResolve) answerScope(null);
+  else closeSheets();
+}
+
+/* ---------- Действия ---------- */
+
+/* Новое дело и изменённое идут одним путём: форма одна, отличается только
+   тем, есть ли state.editing. Дата и часы приходят двумя полями и здесь
+   складываются в одно местное время.
+
+   scope — 'one' или 'all', что именно меняем у повторяющегося дела. */
+async function saveTask(fields, scope = 'one') {
+  const { title, note, date, time, repeatKind, weekdays } = fields;
+  const [y, mo, d] = date.split('-').map(Number);
+  const [h, m] = time.split(':').map(Number);
+  const at = new Date(y, mo - 1, d, h, m, 0, 0).getTime();
+  const clean = { title: title.trim(), note: note.trim() };
+
+  const old = state.editing ? state.tasks.find((x) => x.id === state.editing) : null;
+
+  /* Правка всей серии: хвост сносим и строим заново от этой же даты —
+     новый якорь, новое правило. Прошлым вхождениям ставим repeatEnd,
+     иначе их поток продолжит досоздавать по старому правилу.
+
+     Отметки «сделано» на будущих вхождениях при этом теряются. Их обычно
+     и нет, а переносить их ради редкого случая — лишняя машинерия. */
+  if (old && scope === 'all' && old.seriesId) {
+    const past   = state.tasks.filter((x) => x.seriesId === old.seriesId && x.at < old.at);
+    const future = state.tasks.filter((x) => x.seriesId === old.seriesId && x.at >= old.at);
+    for (const x of future) await db.remove(x.id);
+    for (const x of past) await db.put({ ...x, repeatEnd: old.at });
+
+    const rule = repeatKind ? makeRule(repeatKind, weekdays, at) : null;
+    const rec = { ...old, ...clean, at, done: false, doneAt: null, skipped: false };
+    delete rec.repeatEnd;
+    if (rule) { rec.seriesId = old.seriesId; rec.repeat = rule; }
+    else { delete rec.seriesId; delete rec.repeat; }
+
+    await db.put(rec);
+    state.editing = null;
+    await refresh();
+    if (rule && await syncSeries()) await refresh();
+    return;
+  }
+
+  /* Правка одного вхождения правило серии не трогает: сменить расписание
+     можно только через «всё будущее», о чём и спрашивает лист. */
+  const rule = !old && repeatKind ? makeRule(repeatKind, weekdays, at) : null;
+  const rec = old
+    ? { ...old, ...clean, at }
+    : {
+        id: db.newId(),
+        ...clean,
+        at,
+        done: false,
+        doneAt: null,
+        createdAt: Date.now(),
+        ...(rule ? { seriesId: db.newId(), repeat: rule } : {}),
+      };
+  await db.put(rec);
   state.editing = null;
   await refresh();
+  // у серии после создания или переноса якоря надо досоздать хвост
+  if (rec.seriesId && await syncSeries()) await refresh();
 }
 
 /** Просроченное возвращается на сегодня, остальное уезжает на завтра.
@@ -637,15 +894,51 @@ async function moveTask(id) {
   } else {
     d.setDate(d.getDate() + 1);
   }
+  /* У серии освободившееся место надо закрыть зарубкой. Иначе досоздание
+     увидит пустую клетку расписания и вернёт дело на старый день — оно
+     окажется в двух сразу. */
+  if (t.seriesId) {
+    await db.put({ ...t, id: db.newId(), skipped: true, done: false, doneAt: null });
+  }
+
   t.at = d.getTime();
+  t.skipped = false;
   await db.put(t);
   state.flash = id;
   await refresh();
 }
 
-async function deleteTask(id) {
+/* scope — что удаляем у повторяющегося дела.
+
+   'one' — вхождение становится зарубкой, а не исчезает: место в расписании
+   должно остаться занятым, иначе syncSeries создаст дело заново и удалённое
+   вернётся.
+
+   'all' — будущие вхождения сносятся, а последнему оставшемуся ставится
+   repeatEnd: без него досоздание пройдёт по расписанию и создаст их снова.
+   Полоски «Вернуть» тут нет намеренно: она умеет возвращать одно дело,
+   а не серию, и делать вид, что вернёт всё, хуже, чем не показывать её. */
+async function deleteTask(id, scope = 'one') {
   const t = state.tasks.find((x) => x.id === id);
   if (!t) return;
+
+  if (t.seriesId && scope === 'all') {
+    const future = state.tasks.filter((x) => x.seriesId === t.seriesId && x.at >= t.at);
+    const rest = state.tasks
+      .filter((x) => x.seriesId === t.seriesId && x.at < t.at)
+      .sort((a, b) => b.at - a.at);
+    for (const x of future) await db.remove(x.id);
+    if (rest.length) await db.put({ ...rest[0], repeatEnd: t.at });
+    await refresh();
+    return;
+  }
+
+  if (t.seriesId) {
+    await db.put({ ...t, skipped: true, done: false, doneAt: null });
+    await refresh();
+    return;
+  }
+
   state.removed = t;          // держим в памяти, пока полоска «Вернуть» на экране
   await db.remove(id);
   await refresh();
@@ -738,7 +1031,7 @@ document.addEventListener('click', async (e) => {
     // откроется на нём, а не на сегодня
     if (a === 'add') { openAdd(act.dataset.day ? Number(act.dataset.day) : null); return; }
     if (a === 'settings') { openSettings(); return; }
-    if (a === 'close') { closeSheets(); return; }
+    if (a === 'close') { dismiss(); return; }
     if (a === 'back') { state.monthDay = null; fresh = true; render(); return; }
     if (a === 'month-prev' || a === 'month-next') {
       const c = new Date(state.monthCursor);
@@ -772,11 +1065,23 @@ document.addEventListener('click', async (e) => {
       return;
     }
 
+    if (a === 'scope-one') { answerScope('one'); return; }
+    if (a === 'scope-all') { answerScope('all'); return; }
+
     // действия над делом из листа, открытого долгим нажатием
     const id = state.sheetTask;
     if (a === 'edit') { if (id) openEdit(id); return; }
+    // перенос у серии спрашивать не о чем: «на завтра» значит сдвинуть
+    // этот день, а не переписать расписание всей серии
     if (a === 'move') { closeSheets(); if (id) await moveTask(id); return; }
-    if (a === 'delete') { closeSheets(); if (id) await deleteTask(id); return; }
+    if (a === 'delete') {
+      const task = state.tasks.find((x) => x.id === id);
+      closeSheets();
+      if (!task) return;
+      const scope = task.seriesId ? await askScope(task) : 'one';
+      if (scope) await deleteTask(id, scope);
+      return;
+    }
     if (a === 'undo') { await undoDelete(); return; }
   }
 });
@@ -859,24 +1164,53 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
   }
 });
 
-scrim.addEventListener('click', closeSheets);
-document.getElementById('sheet-cancel').addEventListener('click', closeSheets);
+// dismiss, а не closeSheets: если висит вопрос «этот день или всё будущее»,
+// закрытие листа обязано на него ответить, иначе ожидающий код зависнет
+scrim.addEventListener('click', dismiss);
+document.getElementById('sheet-cancel').addEventListener('click', dismiss);
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const title = form.elements.title.value;
   if (!title.trim()) return;
-  await saveTask(title, form.elements.note.value,
-                 form.elements.date.value, form.elements.time.value);
+
+  const fields = {
+    title,
+    note: form.elements.note.value,
+    date: form.elements.date.value,
+    time: form.elements.time.value,
+    repeatKind: repeatSelect.value,
+    weekdays: readWeekdays(),
+  };
+
+  // Правка повторяющегося дела: сначала выясняем, что именно меняем, и только
+  // потом закрываем форму. Если человек передумал — возвращаем его обратно
+  // к форме, значения на месте.
+  const editing = state.editing ? state.tasks.find((x) => x.id === state.editing) : null;
+  if (editing && editing.seriesId) {
+    const scope = await askScope(editing);
+    if (!scope) { openSheet('add'); return; }
+    await saveTask(fields, scope);
+    return;
+  }
+
+  await saveTask(fields, 'one');
   closeSheets();
 });
 
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheets(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') dismiss(); });
 
 /* ---------- Старт ---------- */
 
 applyAppearance();
-refresh();
+
+/* Горизонт повторов надо двигать при каждом запуске: серия, созданная год
+   назад, иначе кончится ровно через год после создания. Заодно это проверка
+   идемпотентности — зарубки занимают свои места, и удалённое не возвращается. */
+(async () => {
+  await refresh();
+  if (await syncSeries()) await refresh();
+})();
 
 /* Раз в полминуты — только то, что действительно изменилось.
    Полная перерисовка здесь была бы вредна: она заново проигрывает

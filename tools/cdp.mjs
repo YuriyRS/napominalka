@@ -228,6 +228,39 @@ export const DEMO_LATE = [
   ...DEMO_DAY,
 ];
 
+/** Время «сегодня, h:m, минус daysAgo дней».
+
+    Нужно ровно затем же, зачем D() внутри seedExpr: якорь серии обязан
+    совпадать со временем её первого вхождения. Считать его надо так же —
+    местным временем, а не UTC. */
+const dayAt = (h, m, daysAgo = 0) => {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
+};
+
+/** Серия повторов: зарядка каждое утро.
+
+    Якорь — три дня назад, поэтому в наборе есть и прошлые вхождения, и
+    сегодняшнее, и завтрашнее. Одно вчерашнее намеренно не закрыто: на нём
+    проверяется, что повтор не всплывает в «Просрочено». Последняя запись —
+    зарубка на месте удалённого вхождения.
+
+    Остальные вхождения до горизонта досоздаст syncSeries при запуске —
+    это и есть проверка размножения. */
+const SPORT_ON = { kind: 'daily', days: [], anchor: dayAt(7, 0, 3) };
+
+export const DEMO_REPEAT = [
+  { id: 'r1', title: 'Зарядка', note: 'десять минут', h: 7, m: 0, daysAgo: 3, seriesId: 'sport', repeat: SPORT_ON, done: true },
+  { id: 'r2', title: 'Зарядка', note: 'десять минут', h: 7, m: 0, daysAgo: 2, seriesId: 'sport', repeat: SPORT_ON, done: true },
+  { id: 'r3', title: 'Зарядка', note: 'десять минут', h: 7, m: 0, daysAgo: 1, seriesId: 'sport', repeat: SPORT_ON, done: false },
+  { id: 'r4', title: 'Зарядка', note: 'десять минут', h: 7, m: 0, daysAgo: 0, seriesId: 'sport', repeat: SPORT_ON, done: false },
+  { id: 'r5', title: 'Зарядка', note: 'десять минут', h: 7, m: 0, daysAgo: -1, seriesId: 'sport', repeat: SPORT_ON, done: false },
+  { id: 'r6', title: 'Зарядка', note: 'десять минут', h: 7, m: 0, daysAgo: -2, seriesId: 'sport', repeat: SPORT_ON, skipped: true },
+  { id: 'r7', title: 'Купить хлеб', note: '', h: 18, m: 30, daysAgo: 0, done: false },
+];
+
 /** Разброс по месяцу — чтобы в календаре были видны все четыре уровня
     плотности. Отрицательный daysAgo — будущие дни: seedExpr считает дату
     как «сегодня минус daysAgo дней». */
