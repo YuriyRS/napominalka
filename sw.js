@@ -84,8 +84,11 @@ self.addEventListener('fetch', (e) => {
    текста: пуш без полезной нагрузки не надо шифровать, а значит
    и ломаться в нём нечему.
 
-   Кнопки «Готово» и «Позже», сводка за день и повтор — дальше,
-   на этапе 3. */
+   Кнопки «Готово» и «Позже» — то, ради чего уведомление вообще стоит
+   показывать поверх всего: отметку ставят не открывая приложения.
+
+   Сводка за день, повтор для важных и настройка «Позже через N минут» —
+   дальше, на этапе 3. */
 self.addEventListener('push', (e) => {
   let data = null;
   try { data = e.data && e.data.json(); } catch { data = null; }
@@ -95,18 +98,39 @@ self.addEventListener('push', (e) => {
     tag: 'napominalka-check',
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
+
+    /* Две кнопки — предел Chrome: третью он отбрасывает молча.
+       Поддерживает ли их Android — проверяем, на компьютере они есть. */
+    actions: [
+      { action: 'done', title: 'Готово' },
+      { action: 'later', title: 'Позже' },
+    ],
   }));
 });
 
 /* Тап по уведомлению открывает приложение, а не новую вкладку
-   поверх уже открытой. Для этого же обработчика на этапе 3
-   появится разбор кнопок. */
+   поверх уже открытой. Нажатие на кнопку вместо этого показывает
+   маленькое подтверждение: на этом шаге важно увидеть, что нажатие
+   вообще дошло и какое именно.
+
+   На этапе 3 подтверждение заменят настоящие действия: «Готово»
+   закроет дело в базе, «Позже» — перенесёт на N минут. */
 self.addEventListener('notificationclick', (e) => {
+  const action = e.action;
   e.notification.close();
-  e.waitUntil(self.clients
-    .matchAll({ type: 'window', includeUncontrolled: true })
-    .then((list) => {
-      for (const c of list) if ('focus' in c) return c.focus();
-      return self.clients.openWindow('./');
-    }));
+
+  e.waitUntil((async () => {
+    if (action) {
+      await self.registration.showNotification('Кнопка дошла', {
+        body: 'Нажато: ' + action,
+        tag: 'napominalka-check',
+        icon: './icons/icon-192.png',
+      });
+      return;
+    }
+
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of list) if ('focus' in c) return c.focus();
+    return self.clients.openWindow('./');
+  })());
 });
