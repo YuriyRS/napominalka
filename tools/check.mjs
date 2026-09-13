@@ -8,7 +8,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, DEMO_YEAR, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, DEMO_YEAR, DEMO_VOICE, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
@@ -36,6 +36,25 @@ async function longPress(sel) {
   await sleep(650);
   await b.S('Input.dispatchMouseEvent', { type: 'mouseReleased', ...base, buttons: 0 });
   await sleep(450);
+}
+
+/** Настоящее нажатие мышью по элементу.
+
+    Нужно там, где программный click() не годится: Chrome не считает его
+    жестом пользователя и, например, звук не пускает. */
+async function click(sel) {
+  await b.evalIn(`document.querySelector('${sel}').scrollIntoView({ block: 'center' })`);
+  await sleep(300);
+  const p = JSON.parse(await b.evalIn(`JSON.stringify((() => {
+    const r = document.querySelector('${sel}').getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  })())`));
+  const base = { x: p.x, y: p.y, button: 'left', clickCount: 1 };
+  await b.S('Input.dispatchMouseEvent', { type: 'mouseMoved', ...base, buttons: 0 });
+  await b.S('Input.dispatchMouseEvent', { type: 'mousePressed', ...base, buttons: 1 });
+  await sleep(60);
+  await b.S('Input.dispatchMouseEvent', { type: 'mouseReleased', ...base, buttons: 0 });
+  await sleep(400);
 }
 
 const snap = () => b.evalIn(`JSON.stringify({
@@ -593,6 +612,177 @@ say('год назад', await b.evalIn(`document.querySelector('.cal__title')?.
 await b.evalIn(`document.querySelector('[data-act="year-next"]').click()`);
 await sleep(500);
 say('год вперёд', await b.evalIn(`document.querySelector('.cal__title')?.textContent`));
+
+/* ---------- голосовая заметка ----------
+
+   Проверяется то, чего не видно в разметке: звук доходит до базы, играет
+   по нажатию и уезжает в файл копии. Микрофон у стенда поддельный (Chrome
+   поднимается с --use-fake-device-for-media-stream), но запись при этом
+   настоящая: MediaRecorder, куски, сборка в blob. Подделка на месте записи
+   не проверила бы ничего — здесь же проверяется весь путь целиком.
+
+   Играет всегда не больше одной записи, и запускается она только настоящим
+   нажатием: Chrome не считает программный click() жестом пользователя
+   и звук не пускает. То же правило, что и на телефоне. */
+
+await b.evalIn(seedExpr(DEMO_VOICE));
+await b.navigate(b.url);
+await sleep(1800);
+await b.shot('голос');
+
+say('голос в ленте', await b.evalIn(`(() => {
+  const players = [...document.querySelectorAll('.task .player')];
+  return JSON.stringify({
+    проигрывателей: players.length,
+    столбиков: players[0]?.querySelectorAll('.wave i').length,
+    время: players[0]?.querySelector('.note__clock')?.textContent,
+    текст_заметки_остался: document.querySelectorAll('.task__note').length,
+  });
+})()`));
+
+await b.evalIn(`document.querySelectorAll('.task [data-act="play"]')[0]
+  .closest('.task').dataset.probe = 'voice'`);
+await click('[data-probe="voice"] [data-act="play"]');
+await sleep(1200);
+say('играет из ленты', await b.evalIn(`(() => {
+  const box = document.querySelector('.player[data-playing]');
+  return JSON.stringify({
+    играет: Boolean(box),
+    знак_паузы: box ? getComputedStyle(box.querySelector('.note__pause-i')).display !== 'none' : null,
+    закрашено: box ? box.querySelectorAll('.wave i.is-on').length : 0,
+  });
+})()`));
+
+await click('[data-probe="voice"] [data-act="play"]');
+await sleep(400);
+say('остановлено', await b.evalIn(`String(!document.querySelector('.player[data-playing]'))`));
+
+// запись через форму: пусто → идёт запись → записано → звук в базе
+await b.evalIn(`document.querySelector('.add-btn').click()`);
+await sleep(700);
+await b.evalIn(`document.querySelector('#note-rec').click()`);
+await sleep(2500);
+say('идёт запись', await b.evalIn(`JSON.stringify({
+  состояние: document.querySelector('#f-note-box').dataset.state,
+  столбиков: document.querySelectorAll('#note-wave-live i').length,
+  время: document.querySelector('#note-clock').textContent,
+})`));
+
+await b.evalIn(`document.querySelector('#note-stop').click()`);
+await sleep(900);
+say('записано', await b.evalIn(`JSON.stringify({
+  состояние: document.querySelector('#f-note-box').dataset.state,
+  столбиков: document.querySelectorAll('#note-wave-done i').length,
+  кнопок: [...document.querySelectorAll('#note-redo, #note-drop')].map((b) => b.textContent),
+})`));
+
+await b.evalIn(`(() => {
+  const f = document.querySelector('#task-form');
+  f.elements.title.value = 'Позвонить в поликлинику';
+  f.requestSubmit();
+})()`);
+await sleep(1200);
+
+say('звук в базе', await b.evalIn(`(async () => {
+  const db = await new Promise((res, rej) => {
+    const rq = indexedDB.open('napominalka', 2);
+    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+  });
+  const store = db.transaction('voice', 'readonly').objectStore('voice');
+  const [keys, blobs] = await Promise.all([
+    new Promise((res, rej) => { const r = store.getAllKeys(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }),
+    new Promise((res, rej) => { const r = store.getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }),
+  ]);
+  return JSON.stringify({ записей: keys.length, самая_крупная: Math.max(...blobs.map((x) => x.size)) });
+})()`));
+
+/* Копия со звуком.
+
+   Файл в headless скачивать некуда, поэтому перехватываем то, что копия
+   собирается сохранить, и читаем его как текст: проверяется содержимое,
+   а не то, открылось ли окно сохранения. Затем тем же файлом загружаем
+   копию обратно — так проверяются обе половины, а не одна. */
+await b.evalIn(`(() => {
+  window.__saved = null;
+  const orig = URL.createObjectURL;
+  URL.createObjectURL = (blob) => { window.__saved = blob; return orig.call(URL, blob); };
+  document.querySelector('[data-act="settings"]').click();
+})()`);
+await sleep(600);
+await b.evalIn(`document.querySelector('[data-act="export"]').click()`);
+await sleep(1200);
+
+say('копия со звуком', await b.evalIn(`(async () => {
+  if (!window.__saved) return 'файл не собрался';
+  const data = JSON.parse(await window.__saved.text());
+  const withVoice = data.tasks.filter((t) => t.voice);
+  const id = withVoice[0]?.voice?.id;
+  return JSON.stringify({
+    версия: data.version,
+    дел_с_голосом: withVoice.length,
+    записей_в_копии: Object.keys(data.audio || {}).length,
+    звук_по_ссылке_есть: Boolean(data.audio && data.audio[id]),
+  });
+})()`));
+
+await b.evalIn(`(() => {
+  window.__back = window.__saved;
+  document.querySelector('[data-act="close"]').click();
+})()`);
+await sleep(500);
+
+say('копия обратно', await b.evalIn(`(async () => {
+  const file = new File([await window.__back.text()], 'back.json', { type: 'application/json' });
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  const input = document.querySelector('#import-file');
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 900));
+  return JSON.stringify({
+    дел: document.querySelectorAll('.task').length,
+    с_голосом: [...document.querySelectorAll('.task .player')].length,
+  });
+})()`));
+
+/* ---------- метла по звуку ----------
+
+   Удаление дела не сносит его запись: удалённое можно вернуть полоской
+   «Вернуть», и снести звук в момент удаления значило бы вернуть дело
+   без голоса. Поэтому записи, на которые никто не ссылается, убираются
+   при запуске — и проверить это можно только перезагрузкой. Без неё
+   метла не ходит, а ошибка в ней не видна вовсе. */
+
+await b.evalIn(`(async () => {
+  const db = await new Promise((res) => {
+    const rq = indexedDB.open('napominalka', 2);
+    rq.onsuccess = () => res(rq.result);
+  });
+  const tx = db.transaction('voice', 'readwrite');
+  tx.objectStore('voice').put(new Blob([new Uint8Array(2048)], { type: 'audio/webm' }), 'сирота');
+})()`);
+await sleep(500);
+
+const countVoice = `(async () => {
+  const db = await new Promise((res) => {
+    const rq = indexedDB.open('napominalka', 2);
+    rq.onsuccess = () => res(rq.result);
+  });
+  const keys = await new Promise((res) => {
+    const r = db.transaction('voice', 'readonly').objectStore('voice').getAllKeys();
+    r.onsuccess = () => res(r.result);
+  });
+  return JSON.stringify({ записей: keys.length, сирота_на_месте: keys.includes('сирота') });
+})()`;
+
+say('до метлы', await b.evalIn(countVoice));
+await b.navigate(b.url);
+await sleep(1800);
+say('после метлы', await b.evalIn(countVoice));
+
+// Окна alert приложение показывает само, и это не проблема стенда —
+// но знать о них стоит, иначе они проходят незамеченными
+if (b.dialogs.length) console.log('окна           ', JSON.stringify(b.dialogs));
 
 console.log(b.problems.length ? '\nПРОБЛЕМЫ:\n' + b.problems.join('\n') : '\nконсоль чистая');
 

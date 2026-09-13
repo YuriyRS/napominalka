@@ -232,7 +232,8 @@ function taskRow(t, { flashId = null, extra = '', late = false } = {}) {
           ? `<svg class="task__repeat" viewBox="0 0 24 24" aria-hidden="true">${ICON.repeat}</svg>`
             + '<span class="visually-hidden">, повторяется</span>' : ''}</div>
         <div class="task__title">${esc(t.title)}</div>
-        ${t.note ? `<div class="task__note">${esc(t.note)}</div>` : ''}
+        ${t.voice ? playerHtml(t.voice)
+          : t.note ? `<div class="task__note">${esc(t.note)}</div>` : ''}
       </div>
     </li>`;
 }
@@ -546,6 +547,284 @@ function renderYear(f) {
     </div>`;
 }
 
+/* ---------- Голосовая заметка ----------
+
+   Заметка к делу: текстом или голосом. Голос — вместо заметки, а не вместо
+   дела: у дела остаётся время, оно видно в ленте и календаре, и о нём
+   придёт напоминание. Дело без названия, которое можно только послушать,
+   не попало бы ни в сводку, ни в поиск, ни в напоминание.
+
+   Звук лежит в отдельной таблице базы, дело хранит только ссылку и
+   **описание волны**, снятое при записи. Описание — это те же столбики,
+   что видны на экране, и лежит оно в деле намеренно: волну видно сразу,
+   без доставания звука из базы и без его разбора. Шестьдесят четыре
+   числа против секунд декодирования на каждый показ ленты.
+
+   Размер ограничен двумя минутами. Не ради экономии места, а ради копии:
+   звук уезжает в файл копии в base64, а это треть сверху. */
+
+const VOICE_LIMIT_MS = 120_000;
+
+/* Сорок столбиков, а не шестьдесят четыре. На ширине ленты в сто шестнадцать
+   пикселей шестьдесят четыре столбика дают одних только промежутков больше,
+   чем есть места, и волна превращается в серую пыль. Сорок читаются. */
+const WAVE_BARS = 40;
+
+const clock = (ms) => `${Math.floor(ms / 60000)}:${pad2(Math.round(ms / 1000) % 60)}`;
+
+const canRecord = () => typeof MediaRecorder !== 'undefined'
+  && Boolean(navigator.mediaDevices?.getUserMedia) && Boolean(window.AudioContext);
+
+/** Столбики волны. Минимум 12% высоты, иначе тихие места выглядели бы
+    дырами, а не тишиной. */
+const waveBars = (wave) => (wave || [])
+  .map((v) => `<i style="height:${Math.max(12, Math.round(v * 100))}%"></i>`).join('');
+
+/** Проигрыватель — один и тот же в форме и в ленте. Разметка общая
+    намеренно: это одно и то же действие, и выглядеть оно должно одинаково. */
+const playerHtml = (voice) => `
+  <span class="player" data-voice-box>
+    <button class="note__play" type="button" data-act="play" data-voice="${esc(voice.id)}"
+            aria-label="Прослушать заметку">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path class="note__play-i" d="M8.5 5.2v13.6L19 12z"/>
+        <path class="note__play-i note__pause-i" d="M8.5 5.2h3.2v13.6H8.5zM13.3 5.2h3.2v13.6h-3.2z"/>
+      </svg>
+    </button>
+    <span class="wave">${waveBars(voice.wave)}</span>
+    <span class="note__clock">${clock(voice.ms)}</span>
+  </span>`;
+
+/* ---------- Воспроизведение ----------
+
+   Играет всегда не больше одной записи. Звук достаётся из базы в момент
+   нажатия: держать в памяти все записи дня незачем. */
+
+let playing = null;
+
+function stopPlaying() {
+  if (!playing) return;
+  playing.audio.pause();
+  URL.revokeObjectURL(playing.url);
+  playing.box?.removeAttribute('data-playing');
+  paintWave(playing.box, 0);
+  playing = null;
+}
+
+async function playVoice(id, box) {
+  if (!id) return;
+  if (playing?.id === id) { stopPlaying(); return; }
+  stopPlaying();
+
+  const blob = await db.getVoice(id);
+  if (!blob) return;   // запись потерялась — молчим, но и не врём пустотой на месте кнопки
+
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  playing = { id, audio, url, box };
+
+  audio.addEventListener('timeupdate', () => {
+    if (playing?.audio !== audio || !audio.duration) return;
+    paintWave(box, audio.currentTime / audio.duration);
+  });
+  audio.addEventListener('ended', () => { if (playing?.audio === audio) stopPlaying(); });
+
+  box?.setAttribute('data-playing', '');
+  try { await audio.play(); } catch { stopPlaying(); }
+}
+
+/** Закрашивает столбики до доли проигранного. */
+function paintWave(box, progress) {
+  const bars = box?.querySelectorAll('.wave i');
+  if (!bars || !bars.length) return;
+  const upto = Math.round(bars.length * progress);
+  bars.forEach((b, i) => b.classList.toggle('is-on', i < upto));
+}
+
+/* ---------- Запись ----------
+
+   MediaRecorder плюс анализатор. Анализатор здесь не для красоты: он снимает
+   громкость по ходу записи, из неё получается описание волны, и оно уезжает
+   в дело вместе со звуком. */
+
+let rec = null;
+
+async function startRecording() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+    .find((m) => MediaRecorder.isTypeSupported?.(m)) || '';
+  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+
+  const ctx = new AudioContext();
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 1024;
+  ctx.createMediaStreamSource(stream).connect(analyser);
+  const buf = new Uint8Array(analyser.fftSize);
+
+  const session = { recorder, stream, ctx, analyser, buf, chunks: [], wave: [], startedAt: Date.now(), tick: null };
+  rec = session;
+
+  /* Кусок складывается в session, а не в rec. К моменту остановки rec уже
+     обнулён — и последний кусок, а в короткой записи и единственный,
+     пропал бы: `rec?.chunks` не сработал бы, ошибки бы не было, а запись
+     вышла бы пустой. */
+  recorder.ondataavailable = (e) => { if (e.data.size) session.chunks.push(e.data); };
+  recorder.start();
+
+  rec.tick = setInterval(() => {
+    analyser.getByteTimeDomainData(buf);
+    let sum = 0;
+    for (const v of buf) { const d = (v - 128) / 128; sum += d * d; }
+    rec.wave.push(Math.sqrt(sum / buf.length));
+
+    const ms = Date.now() - rec.startedAt;
+    noteClock.textContent = clock(ms);
+    noteWaveLive.innerHTML = waveBars(shrinkWave(rec.wave));
+    if (ms >= VOICE_LIMIT_MS) stopRecording();
+  }, 50);
+}
+
+/** Останавливает запись и отдаёт готовое: { blob, ms, wave, type }.
+    null — если записи не было. */
+function stopRecording() {
+  return new Promise((resolve) => {
+    const r = rec;
+    if (!r) { resolve(null); return; }
+    rec = null;
+    clearInterval(r.tick);
+
+    r.recorder.onstop = () => {
+      r.stream.getTracks().forEach((t) => t.stop());
+      r.ctx.close();
+      resolve({
+        blob: new Blob(r.chunks, { type: r.recorder.mimeType || 'audio/webm' }),
+        type: r.recorder.mimeType || 'audio/webm',
+        ms: Math.min(Date.now() - r.startedAt, VOICE_LIMIT_MS),
+        wave: shrinkWave(r.wave),
+      });
+    };
+    r.recorder.stop();
+  });
+}
+
+/** Сжимает снятую громкость до WAVE_BARS столбиков и растягивает по самому
+    громкому месту: без растяжки тихая запись вышла бы ровной пустой полосой,
+    а тихая она не потому, что в ней ничего не сказано. */
+function shrinkWave(wave) {
+  if (!wave.length) return new Array(WAVE_BARS).fill(0.25);
+  const out = [];
+  const step = wave.length / WAVE_BARS;
+  for (let i = 0; i < WAVE_BARS; i++) {
+    let peak = 0;
+    for (let j = Math.floor(i * step); j < Math.floor((i + 1) * step); j++) peak = Math.max(peak, wave[j] || 0);
+    out.push(peak);
+  }
+  const max = Math.max(...out, 0.0001);
+  return out.map((v) => Math.min(1, v / max));
+}
+
+/* ---------- Заметка в форме ---------- */
+
+const noteBox = document.getElementById('f-note-box');
+const noteClock = document.getElementById('note-clock');
+const noteWaveLive = document.getElementById('note-wave-live');
+const noteWaveDone = document.getElementById('note-wave-done');
+const noteLen = document.getElementById('note-len');
+const notePlay = document.getElementById('note-play');
+const noteRec = document.getElementById('note-rec');
+const noteText = document.getElementById('f-note');
+
+/* Запись, привязанная к открытой форме. У новой — blob в памяти, у той,
+   что уже лежит в базе, blob не тянется: не тронули — не переписываем. */
+let formVoice = null;
+
+function setNoteState(state) {
+  noteBox.dataset.state = state;
+}
+
+/** Показать записи в форме: и ту, что только что сделана, и ту, что была. */
+function showVoice(voice) {
+  formVoice = voice;
+  setNoteState('done');
+  noteWaveDone.innerHTML = waveBars(voice.wave);
+  noteLen.textContent = clock(voice.ms);
+  notePlay.dataset.voice = voice.id;
+  if (voice.blob) writeVoice(voice);   // свежую кладём сразу, чтобы не держать в памяти
+}
+
+/** Кладёт звук в базу. Отдельно от сохранения дела намеренно: запись может
+    остаться без дела, если форму закрыли, — такая запись сметётся при
+    следующем запуске (db.sweepVoice). */
+async function writeVoice(voice) {
+  if (!voice.blob) return;
+  try { await db.putVoice(voice.id, voice.blob); } catch { /* места нет — дело сохранится без звука */ }
+}
+
+function clearVoice() {
+  formVoice = null;
+  noteWaveDone.innerHTML = '';
+  delete notePlay.dataset.voice;
+  setNoteState('empty');
+}
+
+/* Кнопки записи привязаны к форме, а не к общему разбору нажатий: жить
+   вне формы им негде, и переезжать они никуда не собираются. */
+
+/* Что было записано до «Перезаписать». Если новую запись отменят, старая
+   должна вернуться: правка существующего дела иначе сохранилась бы без
+   голоса — а он у человека был. */
+let redoBackup = null;
+
+function syncNoteRow() {
+  // Кнопка записи есть, только если браузер это умеет. Обещать и не
+  // сделать хуже, чем не показывать вовсе.
+  noteRec.hidden = !canRecord();
+}
+
+noteRec.addEventListener('click', async () => {
+  if (!canRecord()) return;
+  try {
+    noteWaveLive.innerHTML = '';
+    noteClock.textContent = '0:00';
+    setNoteState('live');
+    await startRecording();
+  } catch {
+    // В доступе к микрофону отказано (или его нет) — возвращаем форму как
+    // была и говорим об этом в подсказке поля, а не всплывающим окном.
+    noteText.placeholder = 'Микрофон недоступен — запишите текстом';
+    if (redoBackup) { showVoice(redoBackup); redoBackup = null; }
+    else clearVoice();
+  }
+});
+
+document.getElementById('note-stop').addEventListener('click', async () => {
+  const made = await stopRecording();
+  redoBackup = null;
+  if (!made || !made.blob.size) { clearVoice(); return; }
+  showVoice({ id: db.newId(), ...made });
+});
+
+document.getElementById('note-cancel').addEventListener('click', async () => {
+  await stopRecording();          // запись выбрасывается целиком
+  if (redoBackup) { showVoice(redoBackup); redoBackup = null; }
+  else clearVoice();
+});
+
+document.getElementById('note-redo').addEventListener('click', () => {
+  redoBackup = formVoice;
+  noteRec.click();
+});
+
+document.getElementById('note-drop').addEventListener('click', () => {
+  redoBackup = null;
+  clearVoice();
+});
+
+notePlay.addEventListener('click', () => {
+  playVoice(notePlay.dataset.voice, notePlay.closest('.player'));
+});
+
 /* ---------- Листы ---------- */
 
 const sheets = {
@@ -584,6 +863,7 @@ function openAdd(dayMs = null) {
   form.elements.time.value = defaultTime();
   setWeekdays([]);            // чипсы — кнопки, form.reset() их не трогает
   syncRepeatFields();
+  clearVoice();
   sheetTitle.textContent = 'Новое дело';
   submitBtn.textContent = 'Добавить';
   openSheet('add');
@@ -603,6 +883,8 @@ function openEdit(id) {
   repeatSelect.value = t.repeat ? t.repeat.kind : '';
   setWeekdays(t.repeat && t.repeat.days ? t.repeat.days : []);
   syncRepeatFields();
+  // у записи из базы blob не тянется: не тронули — не переписываем
+  if (t.voice) showVoice(t.voice); else clearVoice();
   sheetTitle.textContent = 'Изменить дело';
   submitBtn.textContent = 'Сохранить';
   openSheet('add');
@@ -916,11 +1198,15 @@ function dismiss() {
 
    scope — 'one' или 'all', что именно меняем у повторяющегося дела. */
 async function saveTask(fields, scope = 'one') {
-  const { title, note, date, time, repeatKind, weekdays } = fields;
+  const { title, note, voice, date, time, repeatKind, weekdays } = fields;
   const [y, mo, d] = date.split('-').map(Number);
   const [h, m] = time.split(':').map(Number);
   const at = new Date(y, mo - 1, d, h, m, 0, 0).getTime();
-  const clean = { title: title.trim(), note: note.trim() };
+
+  /* voice: null пишется намеренно, а не пропускается. При правке запись
+     собирается как { ...old, ...clean }, и пропущенное поле оставило бы
+     голос, который человек только что убрал. */
+  const clean = { title: title.trim(), note: note.trim(), voice: voice || null };
 
   const old = state.editing ? state.tasks.find((x) => x.id === state.editing) : null;
 
@@ -939,6 +1225,7 @@ async function saveTask(fields, scope = 'one') {
     const rule = repeatKind ? makeRule(repeatKind, weekdays, at) : null;
     const rec = { ...old, ...clean, at, done: false, doneAt: null, skipped: false };
     delete rec.repeatEnd;
+    if (!rec.voice) delete rec.voice;
     if (rule) { rec.seriesId = old.seriesId; rec.repeat = rule; }
     else { delete rec.seriesId; delete rec.repeat; }
 
@@ -963,6 +1250,7 @@ async function saveTask(fields, scope = 'one') {
         createdAt: Date.now(),
         ...(rule ? { seriesId: db.newId(), repeat: rule } : {}),
       };
+  if (!rec.voice) delete rec.voice;
   await db.put(rec);
   state.editing = null;
   await refresh();
@@ -1067,8 +1355,37 @@ async function toggleTask(id) {
   await refresh();
 }
 
-function exportBackup() {
-  const payload = { app: 'napominalka', version: 1, exportedAt: new Date().toISOString(), tasks: state.tasks };
+/* Звук в файл копии.
+
+   Без него копия теряет смысл: расшифровки нет, звук и есть заметка.
+   В JSON двоичное не положить, поэтому base64 — файл от этого растёт
+   примерно на треть, и ради этого запись ограничена двумя минутами.
+
+   Через FileReader, а не через btoa по массиву: btoa на большом массиве
+   падает, потому что строку пришлось бы собирать по байту. */
+const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+  const fr = new FileReader();
+  fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+  fr.onerror = () => reject(fr.error);
+  fr.readAsDataURL(blob);
+});
+
+function base64ToBlob(b64, type) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
+
+async function exportBackup() {
+  const audio = {};
+  for (const [id, blob] of await db.allVoice()) audio[id] = await blobToBase64(blob);
+
+  const payload = {
+    app: 'napominalka', version: 2, exportedAt: new Date().toISOString(),
+    tasks: state.tasks,
+    audio,
+  };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1088,7 +1405,18 @@ async function importBackup(file) {
   for (const t of tasks) {
     if (!t.id || !t.title || typeof t.at !== 'number') throw new Error('файл повреждён');
   }
+  /* Копия — источник правды целиком, поэтому звук заменяется, а не
+     добавляется. В копии версии 1 звука нет вовсе, и записи от прежнего
+     списка уходят вместе с ним: оставить их значило бы оставить звук
+     от дел, которых больше нет. */
+  const audio = data.audio || {};
+  const pairs = Object.entries(audio).map(([id, b64]) => [
+    id,
+    base64ToBlob(b64, tasks.find((t) => t.voice?.id === id)?.voice?.type || 'audio/webm'),
+  ]);
+
   await db.replaceAll(tasks);
+  await db.replaceVoice(pairs);
   await refresh();
 }
 
@@ -1168,6 +1496,7 @@ document.addEventListener('click', async (e) => {
       if (id) await toggleTask(id);
       return;
     }
+    if (a === 'play') { playVoice(act.dataset.voice, act.closest('.player')); return; }
 
     if (a === 'scope-one') { answerScope('one'); return; }
     if (a === 'scope-all') { answerScope('all'); return; }
@@ -1278,9 +1607,14 @@ form.addEventListener('submit', async (e) => {
   const title = form.elements.title.value;
   if (!title.trim()) return;
 
+  // Заметка — либо текстом, либо голосом. Если записали голос, текст не
+  // сохраняем: два описания одного и того же только мешали бы друг другу.
   const fields = {
     title,
-    note: form.elements.note.value,
+    note: formVoice ? '' : form.elements.note.value,
+    voice: formVoice
+      ? { id: formVoice.id, ms: formVoice.ms, wave: formVoice.wave, type: formVoice.type }
+      : null,
     date: form.elements.date.value,
     time: form.elements.time.value,
     repeatKind: repeatSelect.value,
@@ -1314,6 +1648,18 @@ applyAppearance();
 (async () => {
   await refresh();
   if (await syncSeries()) await refresh();
+
+  syncNoteRow();
+
+  /* Метла по звуку — при запуске, когда возвращать удалённое уже нечего.
+
+     Удаление дела не сносит его запись: удалённое можно вернуть полоской
+     «Вернуть», и снести звук в момент удаления значило бы вернуть дело
+     без голоса. Поэтому записи, на которые никто не ссылается, убираются
+     здесь — заодно и те, что остались от брошенных форм. */
+  try {
+    await db.sweepVoice(new Set(state.tasks.filter((t) => t.voice).map((t) => t.voice.id)));
+  } catch { /* метла не должна мешать запуску */ }
 })();
 
 /* Раз в полминуты — только то, что действительно изменилось.

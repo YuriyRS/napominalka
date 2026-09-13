@@ -77,6 +77,10 @@ export async function open({ port, out, width = 400, height = 880, scale = 2, ba
     '--headless=new', `--remote-debugging-port=${port + 1}`,
     `--user-data-dir=${path.join(out, 'profile-' + Date.now())}`,
     '--no-first-run', '--no-default-browser-check', '--disable-extensions',
+    // Микрофона у headless Chrome нет, но есть поддельный — без него
+    // запись голоса нечем проверить, а разрешение выдаётся сразу, иначе
+    // окно браузера ждало бы нажатия, которого в стенде некому сделать.
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
     '--hide-scrollbars', `--force-device-scale-factor=${scale}`, 'about:blank',
   ], { stdio: 'ignore' });
 
@@ -96,6 +100,7 @@ export async function open({ port, out, width = 400, height = 880, scale = 2, ba
   let seq = 0;
   const waiters = new Map();
   const problems = [];
+  const dialogs = [];   // то, что приложение сказало через alert/confirm
 
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
@@ -111,6 +116,17 @@ export async function open({ port, out, width = 400, height = 880, scale = 2, ba
     }
     if (m.method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(m.params.type)) {
       problems.push(m.params.type + ': ' + m.params.args.map((a) => a.value ?? a.description).join(' '));
+    }
+    /* Окна alert/confirm закрываем сами.
+
+       В headless-браузере такое окно останавливает страницу насмерть:
+       Runtime.evaluate не отвечает никогда, и стенд висит без единой
+       строчки в выводе — выглядит как «скрипт сломался», хотя сломался
+       не он. Приложение показывает alert, например, после загрузки копии,
+       и это нормально; ненормально, что стенд на нём замирает. */
+    if (m.method === 'Page.javascriptDialogOpening') {
+      dialogs.push(m.params.message);
+      send('Page.handleJavaScriptDialog', { accept: true }, m.sessionId);
     }
   };
 
@@ -132,6 +148,7 @@ export async function open({ port, out, width = 400, height = 880, scale = 2, ba
 
   const api = {
     problems,
+    dialogs,
     S,
 
     /** Выполнить выражение на странице и вернуть значение. */
@@ -192,16 +209,53 @@ export function seedExpr(tasks) {
     };
     const tasks = (${JSON.stringify(tasks)}).map(({ h, m, daysAgo, ...rest }) =>
       ({ ...rest, at: D(h, m, daysAgo) }));
+    /* Настоящий звук для демо-записей.
+
+       Кнопку проигрывания надо чем-то проверить, а пустышка на месте звука
+       проверкой не будет. Собираем короткий WAV прямо здесь: заголовок
+       в сорок четыре байта и синусоида с огибающей, чтобы волна на экране
+       была похожа на речь, а не на ровную полосу. */
+    const wav = (seconds) => {
+      const rate = 8000, n = rate * seconds;
+      const buf = new ArrayBuffer(44 + n);
+      const v = new DataView(buf);
+      const str = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+      str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVE');
+      str(12, 'fmt '); v.setUint32(16, 16, true);
+      v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate, true);
+      v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+      str(36, 'data'); v.setUint32(40, n, true);
+      for (let i = 0; i < n; i++) {
+        const env = 0.35 + 0.65 * Math.abs(Math.sin(i / 900));
+        v.setUint8(44 + i, 128 + Math.round(70 * env * Math.sin(i / 26)));
+      }
+      return new Blob([buf], { type: 'audio/wav' });
+    };
+
     await new Promise((res, rej) => {
-      const rq = indexedDB.open('napominalka', 1);
+      // Версия обязана совпадать с db.js. Разойдутся — стенд получит
+      // VersionError на любом профиле, где приложение успело создать
+      // базу новее. См. ПЛАН.md §7.
+      const rq = indexedDB.open('napominalka', 2);
       rq.onupgradeneeded = () => {
         const s = rq.result.createObjectStore('tasks', { keyPath: 'id' });
         s.createIndex('at', 'at');
+        // отдельным if, как и в db.js: у уже созданной базы первая
+        // проверка истинна, и вложенное создание не выполнилось бы
+        if (!rq.result.objectStoreNames.contains('voice')) rq.result.createObjectStore('voice');
       };
       rq.onsuccess = () => {
-        const tx = rq.result.transaction('tasks', 'readwrite');
+        const tx = rq.result.transaction(['tasks', 'voice'], 'readwrite');
         tx.objectStore('tasks').clear();
-        for (const t of tasks) tx.objectStore('tasks').put(t);
+        const vs = tx.objectStore('voice');
+        vs.clear();
+        for (const t of tasks) {
+          tx.objectStore('tasks').put(t);
+          // длительность в описании должна совпадать со звуком, иначе
+          // проигрыватель покажет одно, а сыграет другое
+          if (t.voice) vs.put(wav(Math.round(t.voice.ms / 1000)), t.voice.id);
+        }
         tx.oncomplete = () => res('ok');
         tx.onerror = () => rej(tx.error);
       };
@@ -227,6 +281,18 @@ export const DEMO_LATE = [
   { id: 'b2', title: 'Записаться на приём к врачу', note: '', h: 16, m: 30, daysAgo: 3, done: false },
   ...DEMO_DAY,
 ];
+
+/** День с голосовыми заметками: у двух дел из шести заметка записана голосом.
+
+    Волна здесь нарисована, а не снята с записи: у настоящей она снимается
+    анализатором по ходу записи. Похожа на речь — с паузами и всплесками,
+    чтобы отличать её от ровной полосы было чем. */
+const demoWave = (seed) => Array.from({ length: 40 }, (_, i) =>
+  Math.round((0.18 + 0.82 * Math.abs(Math.sin((i + seed) / 4.7))) * 100) / 100);
+
+export const DEMO_VOICE = DEMO_DAY.map((t, i) => (i === 2 || i === 4
+  ? { ...t, note: '', voice: { id: 'v' + i, ms: 12000, wave: demoWave(i), type: 'audio/wav' } }
+  : t));
 
 /** Время «сегодня, h:m, минус daysAgo дней».
 

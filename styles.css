@@ -798,6 +798,142 @@ input  { font: inherit; color: inherit; }
 
 .field__label span { font-weight: 450; }
 
+/* ---------- Голосовая заметка ----------
+
+   Три состояния одной коробки: пусто (текст и кнопка записи), идёт запись,
+   записано. Показывается ровно одно — так в разметке нет трёх похожих
+   блоков, которые со временем разойдутся. */
+
+.note[data-state="empty"] .note__live,
+.note[data-state="empty"] .player,
+.note[data-state="live"] .note__text,
+.note[data-state="live"] .player,
+.note[data-state="done"] .note__text,
+.note[data-state="done"] .note__live { display: none; }
+
+.note__text { display: flex; flex-direction: column; gap: 8px; }
+
+/* Кнопка записи — тихая: главное действие в форме это «Сохранить», и
+   спорить с ним за глаз она не должна. */
+.note__rec {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-inner);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 560;
+  transition: background .18s var(--ease-out);
+}
+
+.note__rec:active { background: var(--card); }
+/* Без этого правила hidden не сработает: display задан выше и его перебьёт */
+.note__rec[hidden] { display: none; }
+
+.note__mic {
+  width: 18px; height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+
+.note__live { display: flex; align-items: center; gap: 10px; }
+
+.note__live-dot {
+  flex: none;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--critical);
+  animation: rec-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rec-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .22 } }
+
+.note__clock {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+
+/* Волна — столбики. Описание приходит из самого дела (voice.wave), поэтому
+   рисуется сразу: ни базы, ни разбора звука. Несыгранное — бледным, что
+   сыграно — акцентом: видно, где запись сейчас. */
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 1.5px;
+  flex: 1 1 80px;
+  min-width: 60px;
+  height: 28px;
+}
+
+.wave i {
+  flex: 1 1 0;
+  min-width: 1px;
+  border-radius: 2px;
+  background: var(--dens-2);
+  transition: background .12s linear;
+}
+
+.wave i.is-on { background: var(--accent); }
+
+/* В ленте — строка. В форме — сетка: там к проигрывателю добавляются
+   «Перезаписать» и «Убрать», и в одну строку они с волной не влезают. */
+.player { display: flex; align-items: center; gap: 10px; }
+.note .player { display: grid; grid-template-columns: auto 1fr auto; gap: 10px 12px; }
+.note .player__acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+
+.note__play {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  color: var(--accent);
+  transition: background .18s var(--ease-out);
+}
+
+.note__play:active { background: var(--accent-track); }
+.note__play svg { width: 20px; height: 20px; fill: currentColor; }
+
+/* Одна кнопка на игру и на паузу: две кнопки на одном месте заставляли бы
+   уследить, какая из них сейчас видна. */
+.note__play .note__pause-i { display: none; }
+[data-playing] .note__play .note__play-i { display: none; }
+[data-playing] .note__play .note__pause-i { display: block; }
+
+.note__redo {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--accent);
+  background: none;
+}
+
+.note__redo:active { background: var(--accent-wash); }
+.note__drop { color: var(--ink-muted); }
+
+/* В ленте проигрыватель стоит на месте заметки и должен вести себя как она:
+   одна негромкая строка, которая не спорит с названием дела. */
+.task__body .player { margin-top: 3px; }
+/* Ширина волны ограничена, чтобы время записи помещалось следом: без
+   предела волна растягивалась до края карточки и вытесняла его наружу */
+.task__body .wave { height: 20px; flex: 0 1 116px; min-width: 40px; }
+.task__body .note__play { width: 30px; height: 30px; }
+.task__body .note__play svg { width: 15px; height: 15px; }
+.task__body .note__clock { font-size: 12px; }
+
 .field__input {
   width: 100%;
   min-height: 50px;

@@ -1,11 +1,28 @@
 /* ============================================================
    Хранилище. Всё лежит на телефоне, никуда не отправляется.
-   IndexedDB, одна таблица tasks.
+   IndexedDB: таблица tasks и отдельная таблица voice под звук.
    ============================================================ */
 
 const DB_NAME = 'napominalka';
-const DB_VERSION = 1;
+
+/* Версия поднята до 2, когда появился звук голосовых заметок.
+
+   Здесь была первая правка схемы за всю историю проекта, и она сделана
+   тем порядком, который записан в ПЛАН.md §7:
+
+   1. Поднять версию здесь.
+   2. Добавить таблицу **отдельным** `if`, а не внутри проверки на tasks.
+      У установленного приложения первая проверка истинна, блок целиком
+      пропускается, и вложенное создание не выполнилось бы — молча и без
+      ошибки, что хуже всего.
+   3. Поправить версию в стенде (tools/cdp.mjs) — он открывает базу
+      жёстко, и разойдись они, стенд получит VersionError.
+   4. Помнить, что приложение у людей уже установлено: onupgradeneeded
+      обязан **добавлять, а не пересоздавать**. Старая база на телефоне
+      должна пережить обновление вместе со всеми делами. */
+const DB_VERSION = 2;
 const STORE = 'tasks';
+const VOICE = 'voice';
 
 let dbp = null;
 
@@ -20,6 +37,10 @@ function open() {
         // по времени — чтобы выбирать день одним запросом
         s.createIndex('at', 'at');
       }
+      if (!db.objectStoreNames.contains(VOICE)) {
+        // без keyPath: ключ задаётся снаружи и совпадает с voice.id в деле
+        db.createObjectStore(VOICE);
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -27,10 +48,10 @@ function open() {
   return dbp;
 }
 
-function tx(mode, fn) {
+function tx(mode, fn, name = STORE) {
   return open().then((db) => new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, mode);
-    const store = t.objectStore(STORE);
+    const t = db.transaction(name, mode);
+    const store = t.objectStore(name);
     let out;
     try { out = fn(store); } catch (e) { reject(e); return; }
     t.oncomplete = () => resolve(out && out.result !== undefined ? out.result : out);
@@ -85,4 +106,74 @@ export function replaceAll(tasks) {
 export function newId() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
   return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+/* ---------- Звук голосовых заметок ----------
+
+   Отдельной таблицей, потому что в таблицу дел его не положить: дела
+   читаются все разом при запуске (`all()`), и, лежи звук там же, каждое
+   открытие приложения тянуло бы с диска все записи целиком. Дело хранит
+   только ссылку — voice.id, описание волны и длительность. */
+
+/** Положить запись. Ключ — тот же id, что лежит в деле. */
+export function putVoice(id, blob) {
+  return tx('readwrite', (s) => s.put(blob, id), VOICE);
+}
+
+/** Достать запись или undefined, если её нет. */
+export function getVoice(id) {
+  return tx('readonly', (s) => s.get(id), VOICE);
+}
+
+/** Запрос к базе как обычный промис.
+
+    Нельзя отдать IDBRequest прямо в Promise.all: в Chrome он сам похож
+    на промис, и Promise.all возвращает **не результаты, а сами запросы**.
+    Ошибка при этом тихая — падает уже дальше, на попытке что-то с ними
+    сделать, и выглядит это как «поле не того типа».
+
+    Оба запроса создаются здесь подряд и в одной транзакции намеренно:
+    транзакция закрывается, как только очередь микрозадач опустеет, и
+    запрос, созданный внутри .then(), к тому времени уже не примут. */
+function req(r) {
+  return new Promise((res, rej) => {
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+/** Все записи разом — для выгрузки в файл копии.
+    Ключи и значения идут в одном порядке, поэтому пары собираются по индексу. */
+export function allVoice() {
+  return tx('readonly', (s) => {
+    const keys = req(s.getAllKeys());
+    const vals = req(s.getAll());
+    return Promise.all([keys, vals]).then(([ids, blobs]) => ids.map((id, i) => [id, blobs[i]]));
+  }, VOICE);
+}
+
+/** Заменить записи целиком — для импорта из копии. */
+export function replaceVoice(pairs) {
+  return tx('readwrite', (s) => {
+    s.clear();
+    for (const [id, blob] of pairs) s.put(blob, id);
+  }, VOICE);
+}
+
+export function removeVoice(id) {
+  return tx('readwrite', (s) => s.delete(id), VOICE);
+}
+
+/** Убрать записи, на которые никто не ссылается.
+
+    Так делается намеренно вместо удаления сразу за делом: удалённое дело
+    можно вернуть полоской «Вернуть», и если снести звук в момент удаления,
+    возвращать будет нечего. Метла проходит при запуске, когда возвращать
+    уже нечего по определению. */
+export async function sweepVoice(usedIds) {
+  const ids = await tx('readonly', (s) => req(s.getAllKeys()), VOICE);
+  const dead = ids.filter((id) => !usedIds.has(id));
+  if (!dead.length) return 0;
+  await tx('readwrite', (s) => { for (const id of dead) s.delete(id); }, VOICE);
+  return dead.length;
 }

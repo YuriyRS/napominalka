@@ -85,10 +85,50 @@
       </div>
     </div>
 
+    <!-- Заметка: текстом или голосом. Голос — вместо заметки, а не вместо
+         дела: у дела остаётся время, оно видно в ленте и календаре, и о нём
+         придёт напоминание. Три состояния одной коробки переключает
+         data-state, чтобы не заводить три отдельных блока в разметке. -->
     <div class="field">
-      <label class="field__label" for="f-note">Заметка <span>— не обязательно</span></label>
-      <input class="field__input" id="f-note" name="note" type="text"
-             placeholder="в Пятёрочке у дома" maxlength="160">
+      <div class="field__label" id="f-note-label">Заметка <span>— не обязательно</span></div>
+
+      <div class="note" id="f-note-box" data-state="empty">
+        <div class="note__text">
+          <input class="field__input" id="f-note" name="note" type="text"
+                 placeholder="в Пятёрочке у дома" maxlength="160"
+                 aria-labelledby="f-note-label">
+          <button class="note__rec" type="button" id="note-rec">
+            <svg class="note__mic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 14.5a3.2 3.2 0 0 0 3.2-3.2V6.2a3.2 3.2 0 1 0-6.4 0v5.1a3.2 3.2 0 0 0 3.2 3.2Z"/>
+              <path d="M6 11.3a6 6 0 0 0 12 0M12 17.3V21"/>
+            </svg>
+            Записать голосом
+          </button>
+        </div>
+
+        <div class="note__live">
+          <span class="note__live-dot" aria-hidden="true"></span>
+          <span class="note__clock" id="note-clock">0:00</span>
+          <span class="wave" id="note-wave-live"></span>
+          <button class="btn btn--ghost" type="button" id="note-cancel">Отмена</button>
+          <button class="btn btn--primary" type="button" id="note-stop">Стоп</button>
+        </div>
+
+        <div class="player">
+          <button class="note__play" type="button" id="note-play" aria-label="Прослушать">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path class="note__play-i" d="M8.5 5.2v13.6L19 12z"/>
+              <path class="note__play-i note__pause-i" d="M8.5 5.2h3.2v13.6H8.5zM13.3 5.2h3.2v13.6h-3.2z"/>
+            </svg>
+          </button>
+          <span class="wave" id="note-wave-done"></span>
+          <span class="note__clock" id="note-len">0:00</span>
+          <span class="player__acts">
+            <button class="note__redo" type="button" id="note-redo">Перезаписать</button>
+            <button class="note__redo note__drop" type="button" id="note-drop">Убрать</button>
+          </span>
+        </div>
+      </div>
     </div>
 
     <div class="sheet__actions">
