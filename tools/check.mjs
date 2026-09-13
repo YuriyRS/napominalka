@@ -127,18 +127,20 @@ await sleep(300);
 /* Строка установки.
 
    Chrome — в том числе headless — сам выдаёт beforeinstallprompt, раз
-   приложение установимо, и приложение его ловит. Значит, проверять надо
-   обе стороны: что без приглашения строка спрятана и что с приглашением
-   она видна и работает.
+   приложение установимо, и приложение его ловит. Значит, проверяем обе
+   стороны: и что с приглашением появляется кнопка, и что после отказа
+   строка не начинает врать про неспособный браузер.
 
    Событие подсовываем своё, а не полагаемся на настоящее: настоящее
    одноразовое и уже потрачено приложением при загрузке, а нам нужно
    ещё и нажать кнопку. */
-await b.evalIn(`window.dispatchEvent(new Event('appinstalled'))`);
-await sleep(200);
-const installHidden = await b.evalIn(
-  `document.getElementById('install-row').hidden
-   && getComputedStyle(document.getElementById('install-row')).display === 'none'`);
+const rowState = () => b.evalIn(`JSON.stringify({
+  строка: document.getElementById('install-row').hidden
+    || getComputedStyle(document.getElementById('install-row')).display === 'none'
+    ? 'скрыта' : 'видна',
+  кнопка: document.getElementById('install-btn').hidden ? 'скрыта' : 'видна',
+  подсказка: document.getElementById('install-hint').textContent.slice(0, 40),
+})`);
 
 await b.evalIn(`(() => {
   window.__prompted = 0;
@@ -148,23 +150,14 @@ await b.evalIn(`(() => {
   window.dispatchEvent(e);
 })()`);
 await sleep(200);
-const installShown = await b.evalIn(
-  `!document.getElementById('install-row').hidden
-   && getComputedStyle(document.getElementById('install-row')).display !== 'none'`);
+say('установка: с приглашением', await rowState());
 
 await b.shot('настройки');
 
 await b.evalIn(`document.querySelector('[data-act="install"]').click()`);
 await sleep(300);
-const prompted = await b.evalIn(`window.__prompted`);
-const installGoneAgain = await b.evalIn(`document.getElementById('install-row').hidden`);
-
-say('установка', JSON.stringify({
-  без_приглашения_скрыта: installHidden,
-  с_приглашением_видна: installShown,
-  prompt_вызван: prompted,
-  после_нажатия_скрыта: installGoneAgain,
-}));
+say('установка: после нажатия', await rowState());
+say('установка: prompt', JSON.stringify({ вызовов: await b.evalIn(`window.__prompted`) }));
 
 await b.evalIn(`document.querySelector('[data-act="close"]').click()`);
 await sleep(400);
@@ -290,6 +283,24 @@ say('возврат на сегодня', await b.evalIn(`JSON.stringify({
   в_просроченных: document.querySelectorAll('.list--late .task').length,
   на_сегодня: !!document.querySelector('.list:not(.list--done) [data-id="b1"]'),
 })`));
+
+// ---------- браузер, который не умеет ставить приложения ----------
+
+/* Такой, как Яндекс.Браузер на Android: сторонние PWA он не ставит и
+   beforeinstallprompt не выдаёт. Chrome тут всегда событие выдаёт, поэтому
+   подделываем среду: подсовываем свой слушатель раньше приложения и глушим
+   событие. Приложение должно не спрятать строку, а объяснить, что делать. */
+await b.S('Page.addScriptToEvaluateOnNewDocument', {
+  source: `window.addEventListener('beforeinstallprompt', (e) => e.stopImmediatePropagation());`,
+});
+await b.navigate(b.url);
+await sleep(1500);
+await b.evalIn(`document.querySelector('[data-act="settings"]').click()`);
+await sleep(400);
+say('установка: браузер не умеет', await rowState());
+await b.shot('установка-не-умеет');
+await b.evalIn(`document.querySelector('[data-act="close"]').click()`);
+await sleep(300);
 
 console.log(b.problems.length ? '\nПРОБЛЕМЫ:\n' + b.problems.join('\n') : '\nконсоль чистая');
 

@@ -60,6 +60,7 @@ const state = {
   removed: null,     // удалённое дело — живёт, пока видна полоска «Вернуть»
   flash: null,       // id строки, которую нужно подсветить один кадр
   installEvent: null, // отложенное приглашение установки от Chrome, см. ниже
+  installOffered: false, // браузер вообще предлагал установку — см. syncInstallRow
 };
 
 /* ---------- Оформление ---------- */
@@ -385,21 +386,54 @@ function syncSettings() {
    подумал. Событие одноразовое: после prompt() оно больше не сработает,
    поэтому после нажатия кнопку убираем.
 
-   На iPhone такого события нет вовсе — там строку просто не показываем,
-   вместо инструкции «Поделиться → На экран „Домой“»: писать её в настройках
-   дольше, чем сделать. */
+   Событие выдаёт не всякий браузер, и это не поломка: Яндекс.Браузер
+   на Android сторонние PWA не ставит вовсе (сам так и отвечает), Safari
+   в принципе не умеет beforeinstallprompt. Поэтому строка не исчезает,
+   а меняет содержимое: есть приглашение — кнопка, нет — подсказка, что
+   сделать. Молча пропасть она не может: человек уже открыл настройки
+   за этим, и пустое место ему ничего не объяснит. */
 
-const installRow = document.getElementById('install-row');
+const installRow  = document.getElementById('install-row');
+const installHint = document.getElementById('install-hint');
+const installBtn  = document.getElementById('install-btn');
+
+const INSTALL_HINT = {
+  ready: 'Значок на главном экране, без адресной строки',
+  ios:   'Откройте сайт в Safari и выберите «Поделиться» → «На экран „Домой“»',
+  other: 'Этот браузер ставить приложения не умеет. Откройте сайт в Chrome '
+       + 'и выберите «Установить приложение»',
+};
+
+/* iPad с недавних пор представляется как Mac, поэтому одной проверки
+   по userAgent мало — у настоящего Mac нет сенсорного экрана */
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 function syncInstallRow() {
   if (!installRow) return;
-  const already = matchMedia('(display-mode: standalone)').matches;
-  installRow.hidden = already || !state.installEvent;
+
+  // уже стоит — предлагать нечего
+  if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
+    installRow.hidden = true;
+    return;
+  }
+
+  const ready = Boolean(state.installEvent);
+  installRow.hidden = false;
+  installBtn.hidden = !ready;
+
+  /* «Умеет, но не воспользовались» и «не умеет вовсе» — разные вещи.
+     После отказа от приглашения браузер его больше не выдаст, и без этого
+     флага строка начала бы врать: Chrome, который только что предлагал
+     установку, объявлялся бы неспособным. */
+  installHint.textContent = (ready || state.installOffered) ? INSTALL_HINT.ready
+    : isIOS ? INSTALL_HINT.ios : INSTALL_HINT.other;
 }
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   state.installEvent = e;
+  state.installOffered = true;
   syncInstallRow();
 });
 
