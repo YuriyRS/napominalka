@@ -81,6 +81,7 @@ const state = {
   installOffered: false, // браузер вообще предлагал установку — см. syncInstallRow
   monthCursor: null,  // первое число показываемого месяца, см. renderMonth
   monthDay: null,     // полночь выбранного дня, null — показываем календарь
+  yearCursor: null,   // номер показываемого года, см. renderYear
 };
 
 /* ---------- Оформление ---------- */
@@ -139,7 +140,7 @@ function render() {
       renderMonth(f);
     }
   }
-  if (state.tab === 'year')  renderSoon('Год', 'Обзор по месяцам — видно, где густо, а где пусто', 'Этап 2', f);
+  if (state.tab === 'year')  renderYear(f);
   if (state.tab === 'subs')  renderSoon('Подписки', 'Список подписок, даты списаний и общая сумма', 'Этап 4', f);
   renderNav();
 }
@@ -178,8 +179,11 @@ const topBar = (opts = {}) => (opts.back
   // с ним за глаз — ровно то, от чего ушли на «Сегодня».
   : state.tab === 'today'
     ? `<div class="top top--slim"><span class="top__eyebrow">Сегодня</span>${gear}</div>`
-    : state.tab === 'month'
-      ? `<div class="top top--slim"><span class="top__eyebrow">${esc(TITLES.month)}</span>${gear}</div>`
+    // «Месяц» и «Год» идут одной дорогой: крупным шрифтом на них пишется
+    // «сентябрь 2026» и «2026», и второй заголовок того же веса спорил бы
+    // с ним за глаз — ровно то, от чего ушли на «Сегодня»
+    : state.tab === 'month' || state.tab === 'year'
+      ? `<div class="top top--slim"><span class="top__eyebrow">${esc(TITLES[state.tab])}</span>${gear}</div>`
       : `<div class="top"><h1 class="top__title">${esc(TITLES[state.tab] || '')}</h1>${gear}</div>`);
 
 /* ---------- Шкала дня ----------
@@ -401,6 +405,20 @@ const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
 const densityLevel = (n) => (n === 0 ? 0 : n <= 2 ? 1 : n <= 5 ? 2 : 3);
 
+/** Сколько дел в каждом дне — одним проходом по уже загруженному списку,
+    а не сорока двумя запросами к базе. Общее для «Месяца» и «Года»: оба
+    показывают одну и ту же плотность, и разойтись они не должны. */
+function dayCounts() {
+  const counts = new Map();
+  for (const t of state.tasks) {
+    if (!shown(t)) continue;
+    const d = new Date(t.at); d.setHours(0, 0, 0, 0);
+    const key = d.getTime();
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
 function renderMonth(f) {
   if (state.monthCursor === null) state.monthCursor = firstOfMonth(new Date());
 
@@ -411,15 +429,7 @@ function renderMonth(f) {
   // неделя с понедельника: getDay() считает от воскресенья
   const lead = (new Date(year, month, 1).getDay() + 6) % 7;
 
-  // сколько дел в каждом дне — одним проходом по уже загруженному списку,
-  // а не сорока двумя запросами к базе
-  const counts = new Map();
-  for (const t of state.tasks) {
-    if (!shown(t)) continue;
-    const d = new Date(t.at); d.setHours(0, 0, 0, 0);
-    const key = d.getTime();
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
+  const counts = dayCounts();
 
   const todayMs = startOfToday();
   let cells = '';
@@ -456,6 +466,84 @@ function renderMonth(f) {
 /** Полночь первого числа того месяца, в который попадает дата. */
 function firstOfMonth(date) {
   return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+}
+
+/* ---------- Год ----------
+
+   Двенадцать строк, в каждой — все дни месяца подряд, по столбику на день.
+   Смысл экрана — не данные, а спокойствие: видно, где густо, а где пусто,
+   и что ничего не забыто.
+
+   Дни идут в тридцать один столбец всегда, даже в феврале. Пятнадцатое
+   число обязано стоять в одном и том же столбце во всех двенадцати
+   строках: ради сравнения строк глазом экран и существует, а сравнить их
+   можно, только если столбцы совпадают. Места, которых в месяце нет,
+   остаются пустыми.
+
+   **Столбик, а не кружок.** На «Месяце» плотность показывает кружок, и там
+   он помещается в клетку шириной 52 px. Здесь на день приходится около
+   девяти — и кружок 5 px против кружка 4 px не различают даже рядом, не то
+   что через экран. Высота читается там, где размер уже не читается, поэтому
+   метка вытянута вверх. Цвет при этом остаётся вторым признаком, как и
+   требует §5: на цвет одного полагаться нельзя.
+
+   Строка целиком — кнопка: тап открывает этот месяц в «Месяце». Дни
+   по отдельности не нажимаются намеренно: клетка шириной около девяти
+   пикселей всё равно меньше любой разумной зоны нажатия, а рассмотреть
+   день можно в самом «Месяце». Высота строки при этом не меньше 48 px —
+   требование плана к зоне нажатия выполняется строкой, а не клеткой. */
+
+function renderYear(f) {
+  if (state.yearCursor === null) state.yearCursor = new Date().getFullYear();
+
+  const year = state.yearCursor;
+  const counts = dayCounts();
+  const todayMs = startOfToday();
+
+  let rows = '';
+  for (let m = 0; m < 12; m++) {
+    const inMonth = new Date(year, m + 1, 0).getDate();
+    const name = new Date(year, m, 1).toLocaleDateString('ru-RU', { month: 'long' });
+
+    let total = 0;
+    let days = '';
+    for (let d = 1; d <= 31; d++) {
+      // тридцать первое февраля не рисуем, но и столбец не занимаем
+      if (d > inMonth) { days += '<span class="year__day"></span>'; continue; }
+
+      const ms = new Date(year, m, d).getTime();
+      const n = counts.get(ms) || 0;
+      total += n;
+      const cls = ms === todayMs ? 'year__day year__day--today' : 'year__day';
+      days += `<span class="${cls}"><span class="year__mark" data-level="${densityLevel(n)}"></span></span>`;
+    }
+
+    rows += `<button class="year__row" data-act="year-month"
+      data-month="${new Date(year, m, 1).getTime()}"
+      aria-label="${esc(`${name} ${year}, ${total ? deeds(total) : 'дел нет'}`)}">
+      <span class="year__name">${esc(name)}</span>
+      <span class="year__days" aria-hidden="true">${days}</span>
+    </button>`;
+  }
+
+  // Подсказка к кружкам. В «Месяце» её нет и не надо: там рядом с кружком
+  // стоит число и всё понятно без слов. Здесь чисел нет, и уровень плотности
+  // иначе пришлось бы угадывать.
+  const key = [['0', 'нет'], ['1', '1–2'], ['2', '3–5'], ['3', '6 и больше']]
+    .map(([lvl, text]) => `<span class="year__key"><i class="year__mark" data-level="${lvl}"></i>${text}</span>`)
+    .join('');
+
+  root.innerHTML = `
+    ${topBar()}
+    <div class="year${f}">
+      <div class="cal__head">
+        <button class="icon-btn" data-act="year-prev" aria-label="Предыдущий год">${svg(ICON.chevL)}</button>
+        <h2 class="cal__title">${year}</h2>
+        <button class="icon-btn" data-act="year-next" aria-label="Следующий год">${svg(ICON.chevR)}</button>
+      </div>
+      <div class="year__card">${rows}</div>
+      <div class="year__legend" aria-hidden="true">${key}</div>
+    </div>`;
 }
 
 /* ---------- Листы ---------- */
@@ -1044,6 +1132,22 @@ document.addEventListener('click', async (e) => {
     }
     if (a === 'day') {
       state.monthDay = Number(act.dataset.day);
+      fresh = true;
+      render();
+      return;
+    }
+    if (a === 'year-prev' || a === 'year-next') {
+      state.yearCursor += (a === 'year-next' ? 1 : -1);
+      fresh = true;
+      render();
+      return;
+    }
+    // тап по месяцу в «Годе» открывает его в «Месяце»: год показывает
+    // форму года, а не заменяет календарь
+    if (a === 'year-month') {
+      state.monthCursor = Number(act.dataset.month);
+      state.monthDay = null;
+      state.tab = 'month';
       fresh = true;
       render();
       return;

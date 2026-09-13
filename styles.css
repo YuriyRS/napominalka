@@ -45,6 +45,12 @@
   --dens-2:        color-mix(in oklab, var(--accent) 60%, var(--card));
   --dens-3:        color-mix(in oklab, var(--accent) 79%, var(--card));
 
+  /* Нулевой уровень — не «дел нет», а дорожка: место, где дело могло бы
+     стоять. Нужен только на «Годе»: там строка месяца должна читаться
+     целой полосой, иначе пустая неделя выглядит дырой в данных. На «Месяце»
+     его нет и не надо — там клетку держит число. */
+  --dens-0:        color-mix(in srgb, var(--ink) 14%, transparent);
+
   /* статусы — зарезервированы, акцентом не становятся */
   --good:          #0CA30C;
   --warning:       #FAB219;
@@ -1001,6 +1007,82 @@ input  { font: inherit; color: inherit; }
 .cal__dot[data-level="1"] { background: var(--dens-1); }
 .cal__dot[data-level="2"] { background: var(--dens-2); width: 6.5px; height: 6.5px; }
 .cal__dot[data-level="3"] { background: var(--dens-3); width: 8px; height: 8px; }
+
+/* ---------- Год ---------- */
+
+.year__card {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift-2);
+  padding: 6px 0;
+}
+
+/* Строка месяца — кнопка целиком. Высота не меньше 48 px: план требует
+   такой зоны нажатия, и здесь она выполняется строкой, а не клеткой дня —
+   клетка шириной девять пикселей всё равно ни на что не годится. */
+.year__row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: var(--r-inner);
+  transition: background .18s var(--ease-out);
+}
+
+.year__row:active { background: var(--card-2); }
+
+.year__name {
+  font-size: 12px;
+  font-weight: 560;
+  color: var(--ink-muted);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Тридцать один столбец всегда: пятнадцатое число обязано стоять на одном
+   месте во всех двенадцати строках, иначе строки не сравнить глазом. */
+.year__days {
+  display: grid;
+  grid-template-columns: repeat(31, 1fr);
+  align-items: center;
+}
+
+.year__day { display: grid; place-items: center; }
+
+/* Метка вытянута вверх, а не круглая: на день приходится около девяти
+   пикселей, и кружки двух соседних уровней там неразличимы. Высота видна
+   даже тогда, когда размер уже нет. Нулевой уровень — не «пусто», а низкая
+   дорожка: по ней строка читается целой полосой, а не набором дыр. */
+.year__mark {
+  width: 6px; height: 2.5px;
+  border-radius: 2px;
+  background: var(--dens-0);
+}
+
+.year__mark[data-level="1"] { background: var(--dens-1); height: 7px; }
+.year__mark[data-level="2"] { background: var(--dens-2); height: 11px; }
+.year__mark[data-level="3"] { background: var(--dens-3); height: 16px; }
+
+/* Сегодня — кольцом вокруг метки, а не цветом: цвет уже занят плотностью,
+   и второе значение в него не влезет. */
+.year__day--today .year__mark { outline: 1.5px solid var(--accent); outline-offset: 1.5px; }
+
+.year__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 16px 6px 0;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.year__key { display: inline-flex; align-items: center; gap: 6px; }
 
 /* ---------- Повторяющиеся дела ---------- */
 

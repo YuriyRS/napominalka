@@ -8,7 +8,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, DEMO_YEAR, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
@@ -536,6 +536,63 @@ say('завтра после отмены', await b.evalIn(`JSON.stringify({
   дел: document.querySelectorAll('.task').length,
   линия_сейчас: !!document.querySelector('.now'),
 })`));
+
+/* ---------- год ----------
+
+   Проверяется то, ради чего экран и сделан: строки обязаны быть сравнимы
+   между собой. Сравнить их можно, только если пятнадцатое число стоит
+   в одном столбце во всех двенадцати строках, — а это не видно ни в
+   разметке, ни на снимке. Только подсчётом: ячеек в каждой строке ровно
+   тридцать одна, даже в феврале, а меток в феврале — двадцать восемь.
+
+   Если убрать пустые ячейки коротких месяцев, тридцать первое января
+   и тридцать первое марта встанут в разные столбцы, и это будет видно
+   только здесь. */
+
+const thisYear = new Date().getFullYear();
+
+await b.evalIn(seedExpr(DEMO_YEAR));
+await b.navigate(b.url);
+await sleep(1800);
+await b.evalIn(`document.querySelector('[data-tab="year"]').click()`);
+await sleep(600);
+await b.shot('год');
+
+say('год', await b.evalIn(`(() => {
+  const rows = [...document.querySelectorAll('.year__row')];
+  const cells = rows.map((r) => r.querySelectorAll('.year__day').length);
+  const marks = rows.map((r) => r.querySelectorAll('.year__mark').length);
+  return JSON.stringify({
+    строк: rows.length,
+    месяцев: rows[0].querySelector('.year__name').textContent + '…' +
+      rows[11].querySelector('.year__name').textContent,
+    ячеек_в_строке: [...new Set(cells)].join('/'),
+    меток_в_феврале: marks[1],
+    дней_в_феврале: new Date(${thisYear}, 2, 0).getDate(),
+    // план требует зону нажатия не меньше 48 px — здесь её даёт строка
+    высота_строки: Math.round(rows[0].getBoundingClientRect().height),
+    сегодня_уровень: document.querySelector('.year__day--today .year__mark')?.dataset.level,
+  });
+})()`));
+
+// тап по месяцу открывает его в «Месяце»: «Год» показывает форму года,
+// а не заменяет календарь
+await b.evalIn(`document.querySelectorAll('.year__row')[4].click()`);
+await sleep(700);
+say('месяц из года', await b.evalIn(`JSON.stringify({
+  месяц: document.querySelector('.cal__title')?.textContent,
+  календарь: !!document.querySelector('.cal__grid'),
+})`));
+
+await b.evalIn(`document.querySelector('[data-tab="year"]').click()`);
+await sleep(500);
+say('год на месте', await b.evalIn(`document.querySelector('.cal__title')?.textContent`));
+await b.evalIn(`document.querySelector('[data-act="year-prev"]').click()`);
+await sleep(500);
+say('год назад', await b.evalIn(`document.querySelector('.cal__title')?.textContent`));
+await b.evalIn(`document.querySelector('[data-act="year-next"]').click()`);
+await sleep(500);
+say('год вперёд', await b.evalIn(`document.querySelector('.cal__title')?.textContent`));
 
 console.log(b.problems.length ? '\nПРОБЛЕМЫ:\n' + b.problems.join('\n') : '\nконсоль чистая');
 

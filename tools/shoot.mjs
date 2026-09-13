@@ -9,7 +9,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, DEMO_YEAR, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
@@ -24,6 +24,8 @@ const CASES = {
   'месяц-тёмная': { tasks: DEMO_MONTH, dark: true, height: 900, tab: 'month' },
   повтор:     { tasks: DEMO_REPEAT, dark: false, height: 880 },
   'повтор-календарь': { tasks: DEMO_REPEAT, dark: false, height: 900, tab: 'month' },
+  год:        { tasks: DEMO_YEAR, dark: false, height: 900, tab: 'year' },
+  'год-тёмная': { tasks: DEMO_YEAR, dark: true,  height: 900, tab: 'year' },
 };
 
 const [name = 'обычный', height] = process.argv.slice(2);
