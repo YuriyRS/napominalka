@@ -82,6 +82,7 @@ const state = {
   monthCursor: null,  // первое число показываемого месяца, см. renderMonth
   monthDay: null,     // полночь выбранного дня, null — показываем календарь
   yearCursor: null,   // номер показываемого года, см. renderYear
+  currency: localStorage.getItem('currency') || 'rub',  // для сумм в подписках
   subs: [],           // подписки, см. renderSubs
   sheetSub: null,     // id подписки, для которой открыт лист действий
   editingSub: null,   // id подписки, которую правят в форме
@@ -115,6 +116,15 @@ darkQuery.addEventListener('change', () => { if (state.theme === 'auto') applyAp
 
 const root  = document.getElementById('screen');
 const navEl = document.getElementById('nav');
+const addBar = document.getElementById('add-bar');
+
+/** Кнопка «Добавить» наполняется снаружи экрана — почему, написано
+    в index.html рядом с ней самой. Здесь важно одно: экраны без кнопки
+    обязаны её убрать, иначе на «Месяце» осталась бы кнопка от «Сегодня». */
+function setAddButton(html) {
+  addBar.innerHTML = html || '';
+  addBar.hidden = !html;
+}
 
 /* Появление проигрывается только при входе на экран.
    Иначе любое обновление — отметка дела, смена минуты — заставляет
@@ -124,6 +134,7 @@ let fresh = true;
 function render() {
   const f = fresh ? ' is-fresh' : '';
   fresh = false;
+  setAddButton('');            // кнопку ставит тот экран, которому она нужна
   if (state.tab === 'today') {
     renderDay(f, startOfToday(), { withNow: true, withOverdue: true, withAdd: true });
   }
@@ -364,11 +375,12 @@ function renderDay(f, dayMs, {
       </p>
       ${dayTasks.length ? `<div class="hero__bar"><i style="width:${pct}%"></i></div>` : ''}
     </section>
-    ${body}
-    ${withAdd ? `<div class="add-bar">
-      <button class="add-btn" data-act="add" data-day="${startOfDay.getTime()}"
-              aria-label="Добавить дело">${svg(ICON.plus)}</button>
-    </div>` : ''}`;
+    ${body}`;
+
+  setAddButton(withAdd
+    ? `<button class="add-btn" data-act="add" data-day="${startOfDay.getTime()}"
+              aria-label="Добавить дело">${svg(ICON.plus)}</button>`
+    : '');
 }
 
 function nowLine(now) {
@@ -841,12 +853,27 @@ const SOON_DAYS = 3;
    списки не должны — иначе у подписки окажется цвет, которого нет. */
 const SUB_COLORS = ['violet', 'blue', 'sky', 'teal', 'green', 'amber', 'orange', 'rose'];
 
+/* Валюты. Ничего не пересчитывается: приложение не знает курсов и знать
+   не хочет — иначе ему пришлось бы за ними ходить в сеть, а оно не ходит.
+   Меняется значок и его место, а не число.
+
+   У доллара значок стоит перед числом, у рубля и тенге — после: так принято
+   писать, и «799 $» читается как ошибка, даже когда это не она. */
+const CURRENCIES = {
+  rub: { sign: '₽', name: 'рубль' },
+  kzt: { sign: '₸', name: 'тенге' },
+  usd: { sign: '$', name: 'доллар', before: true },
+};
+
 /** Копейки → «799 ₽». Копейки показываем, только если они есть. */
 function money(cents) {
+  const cur = CURRENCIES[state.currency] || CURRENCIES.rub;
   const rub = Math.floor(Math.abs(cents) / 100);
   const rest = Math.abs(cents) % 100;
-  const s = rub.toLocaleString('ru-RU');
-  return rest ? `${s},${pad2(rest)} ₽` : `${s} ₽`;
+  const n = rest
+    ? `${rub.toLocaleString('ru-RU')},${pad2(rest)}`
+    : rub.toLocaleString('ru-RU');
+  return cur.before ? `${cur.sign}${n}` : `${n} ${cur.sign}`;
 }
 
 /** «799», «799,50», «1 299» → копейки. null — если это не число. */
@@ -938,11 +965,9 @@ function renderSubs(f) {
 
       ${off.length ? `<div class="subs__head">Отменённые</div>
         <div class="subs__list subs__list--off">${off.map((s) => row(s, true)).join('')}</div>` : ''}
-
-      <div class="add-bar">
-        <button class="add-btn" data-act="sub-new" aria-label="Добавить подписку">${svg(ICON.plus)}</button>
-      </div>
     </div>`;
+
+  setAddButton(`<button class="add-btn" data-act="sub-new" aria-label="Добавить подписку">${svg(ICON.plus)}</button>`);
 }
 
 /* ---------- Листы ---------- */
@@ -973,6 +998,7 @@ function openSheet(name) {
 
 /* ---------- Форма подписки ---------- */
 
+const currencyHint = document.getElementById('currency-hint');
 const subForm      = document.getElementById('sub-form');
 const subTitleEl   = document.getElementById('sub-title');
 const subSubmit    = document.getElementById('sub-submit');
@@ -1143,6 +1169,10 @@ function syncSettings() {
   for (const b of sheets.settings.querySelectorAll('[data-accent-set]')) {
     b.setAttribute('aria-pressed', String(b.dataset.accentSet === state.accent));
   }
+  for (const b of sheets.settings.querySelectorAll('[data-currency-set]')) {
+    b.setAttribute('aria-pressed', String(b.dataset.currencySet === state.currency));
+  }
+  currencyHint.textContent = 'Сейчас — ' + (CURRENCIES[state.currency] || CURRENCIES.rub).name;
   syncInstallRow();
 }
 
@@ -1920,6 +1950,16 @@ for (const b of document.querySelectorAll('[data-accent-set]')) {
     localStorage.setItem('accent', state.accent);
     applyAppearance();
     syncSettings();
+  });
+}
+
+for (const b of document.querySelectorAll('[data-currency-set]')) {
+  b.addEventListener('click', () => {
+    state.currency = b.dataset.currencySet;
+    localStorage.setItem('currency', state.currency);
+    syncSettings();
+    // суммы на экране подписок надо переписать: значок изменился
+    render();
   });
 }
 

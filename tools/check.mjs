@@ -820,6 +820,23 @@ say('подписки', await b.evalIn(`JSON.stringify({
   значков: document.querySelectorAll('.sub__mark').length,
 })`));
 
+/* Валюта меняет только значок и его место, число остаётся тем же.
+
+   Доллар ставится перед числом, рубль и тенге после — «799 $» читается
+   как ошибка, даже когда это не она. Проверяем и место тоже: перепутать
+   его легко, а на снимке одного экрана не видно. */
+await b.evalIn(`document.querySelector('[data-act="settings"]').click()`);
+await sleep(500);
+const currency = {};
+for (const c of ['kzt', 'usd', 'rub']) {
+  await b.evalIn(`document.querySelector('[data-currency-set="${c}"]').click()`);
+  await sleep(350);
+  currency[c] = await b.evalIn(`document.querySelector('.subs__sum')?.textContent.trim()`);
+}
+say('валюта', JSON.stringify(currency));
+await b.evalIn(`document.querySelector('#settings [data-act="close"]').click()`);
+await sleep(400);
+
 /* 31-е число: заводим подписку с этой датой и трижды отмечаем «оплачено».
    Ждём 28 февраля, 31 марта, 30 апреля — то есть возврат к 31-му, как
    только месяц позволит. */

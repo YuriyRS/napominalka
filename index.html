@@ -31,6 +31,17 @@
 
 <nav class="nav" id="nav" aria-label="Разделы"></nav>
 
+<!-- Кнопка «Добавить» живёт здесь, а не внутри экрана, и это не прихоть.
+
+     Она объявлена position: fixed — то есть должна стоять на месте, пока
+     содержимое едет. Но экран появляется с анимацией, анимация это transform,
+     а transform делает элемент содержащим блоком для своих fixed-потомков.
+     Кнопка переставала быть fixed и уезжала вместе с содержимым: на снимке
+     одного экрана этого не видно вовсе, а видно только при прокрутке.
+
+     Что внутри — решает renderDay и renderSubs, там же и почему. -->
+<div class="add-bar" id="add-bar" hidden></div>
+
 <!-- затемнение одно на все листы: открыт всегда ровно один -->
 <div class="sheet-back" id="sheet-back"></div>
 
@@ -166,6 +177,21 @@
       <button type="button" data-accent-set="blue"    style="--sw:#1E40AF" aria-label="Синий"        aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
       <button type="button" data-accent-set="teal"    style="--sw:#0F6B66" aria-label="Петроль"      aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
       <button type="button" data-accent-set="emerald" style="--sw:#0B6B4F" aria-label="Изумрудный"   aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+    </div>
+  </div>
+
+  <!-- Валюта — только для показа сумм в подписках. Ничего не пересчитывается:
+       приложение не знает курсов и знать их не хочет — иначе ему пришлось бы
+       ходить в сеть, а оно не ходит. Меняется значок, а не число. -->
+  <div class="opt opt--stack">
+    <div>
+      <div class="opt__name">Валюта</div>
+      <div class="opt__hint" id="currency-hint">В чём считать подписки</div>
+    </div>
+    <div class="seg" role="group" aria-label="Валюта">
+      <button type="button" data-currency-set="rub" aria-label="Рубль"  aria-pressed="true">₽</button>
+      <button type="button" data-currency-set="kzt" aria-label="Тенге"  aria-pressed="false">₸</button>
+      <button type="button" data-currency-set="usd" aria-label="Доллар" aria-pressed="false">$</button>
     </div>
   </div>
 
