@@ -156,7 +156,10 @@ body {
   background-attachment: fixed;
   background-repeat: no-repeat;
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Golos Text лежит рядом, в fonts/ — см. там же golos.css и лицензию.
+     Системный шрифт оставлен в цепочке запасным: пока файл грузится
+     (или если он вовсе не дошёл), текст уже читается, а не исчезает. */
+  font-family: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 17px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
@@ -564,7 +567,15 @@ input  { font: inherit; color: inherit; }
   line-height: 1.5;
 }
 
-/* ---------- Кнопка добавления ---------- */
+/* ---------- Кнопка добавления ----------
+
+   Была широкой градиентной полосой во всю ширину и оставалась самым громким
+   пятном на экране — при том, что главное действие здесь не «добавить»,
+   а «сделать». Полоса спорила за глаз с лентой дня и выигрывала, потому что
+   была единственным сплошным цветом во всю ширину.
+
+   Теперь круг в углу: тот же акцент, но в одном месте и под рукой. Высота
+   58 px — палец попадает без прицела, и это больше требуемых планом 48. */
 
 .add-bar {
   position: fixed;
@@ -573,30 +584,27 @@ input  { font: inherit; color: inherit; }
   padding: 0 var(--pad);
   max-width: 560px;
   margin: 0 auto;
+  display: flex;
+  justify-content: flex-end;
   pointer-events: none;
   z-index: 5;
 }
 
 .add-btn {
   pointer-events: auto;
-  width: 100%;
-  min-height: 54px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
   background: var(--accent-grad);
   color: var(--accent-ink);
-  font-size: 16.5px;
-  font-weight: 660;
-  letter-spacing: -.015em;
   box-shadow: var(--lift-2);
   transition: transform .2s var(--ease-spring);
 }
 
-.add-btn:active { transform: scale(.965); }
-.add-btn svg { width: 21px; height: 21px; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; fill: none; }
+.add-btn:active { transform: scale(.93); }
+.add-btn svg { width: 26px; height: 26px; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; fill: none; }
 
 /* ---------- Нижняя панель ---------- */
 

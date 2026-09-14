@@ -50,6 +50,25 @@ say('иконки', await b.evalIn(
    )).then((x) => x.join(', '))`,
 ));
 
+/* Шрифт проверяется отдельно и с двух сторон.
+
+   Сломайся путь к нему в подкаталоге — приложение не сломается: оно молча
+   покажет системный шрифт, и заметить это можно только глазами, сравнивая
+   с эталоном. Поэтому смотрим и на сам файл, и на то, подключился ли он. */
+say('шрифт', await b.evalIn(
+  `fetch('./fonts/golos-text-cyrillic.woff2')
+     .then((r) => r.status + ' ' + (r.ok ? 'ок' : 'ОШИБКА'))
+     .catch(() => 'НЕ ДОСТУЧАЛИСЬ')`,
+));
+
+say('шрифт в деле', await b.evalIn(
+  `document.fonts.ready.then(() => {
+     const mine = [...document.fonts].filter((f) => f.family.includes('Golos'));
+     const on = mine.filter((f) => f.status === 'loaded').length;
+     return on ? 'подключён, наборов: ' + on : 'НЕ ПОДКЛЮЧИЛСЯ (показывается системный)';
+   })`,
+));
+
 await sleep(1500);
 say('воркер', await b.evalIn(
   `navigator.serviceWorker.getRegistration().then((r) => r ? r.scope : 'НЕ ЗАРЕГИСТРИРОВАН')`,
@@ -67,6 +86,14 @@ await b.S('Network.emulateNetworkConditions', {
 await b.navigate(b.url);
 await sleep(200);
 await load('без сети');
+// без сети шрифт обязан взяться из кэша — иначе приложение открывается
+// системным, и это ровно то, чего не видно на снимке
+say('шрифт офлайн', await b.evalIn(
+  `document.fonts.ready.then(() => {
+     const on = [...document.fonts].filter((f) => f.family.includes('Golos') && f.status === 'loaded').length;
+     return on ? 'из кэша, наборов: ' + on : 'ПОТЕРЯЛСЯ (показывается системный)';
+   })`,
+));
 await b.shot('выкладка-офлайн');
 
 await b.S('Network.emulateNetworkConditions', {

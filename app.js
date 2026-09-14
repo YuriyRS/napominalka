@@ -366,7 +366,8 @@ function renderDay(f, dayMs, {
     </section>
     ${body}
     ${withAdd ? `<div class="add-bar">
-      <button class="add-btn" data-act="add" data-day="${startOfDay.getTime()}">${svg(ICON.plus)}Добавить</button>
+      <button class="add-btn" data-act="add" data-day="${startOfDay.getTime()}"
+              aria-label="Добавить дело">${svg(ICON.plus)}</button>
     </div>` : ''}`;
 }
 
@@ -939,7 +940,7 @@ function renderSubs(f) {
         <div class="subs__list subs__list--off">${off.map((s) => row(s, true)).join('')}</div>` : ''}
 
       <div class="add-bar">
-        <button class="add-btn" data-act="sub-new">${svg(ICON.plus)}Добавить</button>
+        <button class="add-btn" data-act="sub-new" aria-label="Добавить подписку">${svg(ICON.plus)}</button>
       </div>
     </div>`;
 }
@@ -1499,11 +1500,16 @@ async function moveTask(id) {
     await db.put({ ...t, id: db.newId(), skipped: true, done: false, doneAt: null });
   }
 
+  // Дело уезжает на другой день: строка исчезает, остальные поднимаются.
+  // Без этого они прыгали бы на новое место одним кадром.
+  const before = rowRects();
+
   t.at = d.getTime();
   t.skipped = false;
   await db.put(t);
   state.flash = id;
   await refresh();
+  playMove(before);
 }
 
 /* scope — что удаляем у повторяющегося дела.
@@ -1537,6 +1543,9 @@ async function deleteTask(id, scope = 'one') {
     return;
   }
 
+  // Сначала доигрываем сжатие, и только потом трогаем список: если убрать
+  // строку сразу, экран перерисуется и сжимать будет уже нечего.
+  await collapseRow(id);
   state.removed = t;          // держим в памяти, пока полоска «Вернуть» на экране
   await db.remove(id);
   await refresh();
@@ -1566,15 +1575,94 @@ function hideUndo() {
   state.removed = null;
 }
 
+/* ---------- Переезд строки ----------
+
+   Отметили дело — оно уходит в «Сделано». Раньше оно там просто появлялось:
+   экран перерисовывался целиком, и строка телепортировалась. Плана это
+   не устраивало (§5, «Движение»): карточка должна уезжать.
+
+   Приём называется FLIP — «сначала, потом, наоборот, играй». Запоминаем,
+   где строки стояли до перерисовки (First), даём экрану перерисоваться
+   и меряем заново (Last), ставим каждую на старое место через transform
+   (Invert) и отпускаем — дальше её ведёт transition (Play).
+
+   Считается это по **всем** строкам, а не только по отмеченной: когда одна
+   уезжает вниз, остальные сдвигаются вверх, и без этого они прыгали бы.
+
+   Транзишн на время измерения выключается: иначе браузер применит его
+   к самому сдвигу и строка поедет не туда. */
+
+const noMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const rowRects = () => {
+  const map = new Map();
+  for (const el of root.querySelectorAll('.task[data-id]')) {
+    map.set(el.dataset.id, el.getBoundingClientRect());
+  }
+  return map;
+};
+
+function playMove(before) {
+  if (noMotion()) return;
+  for (const el of root.querySelectorAll('.task[data-id]')) {
+    const was = before.get(el.dataset.id);
+    if (!was) continue;                       // строка новая — ей нечего догонять
+
+    const now = el.getBoundingClientRect();
+    const dx = was.left - now.left;
+    const dy = was.top - now.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    // принудительный пересчёт: без него браузер не увидит исходного
+    // положения и следующая строка ничего не изменит
+    void el.offsetWidth;
+    el.style.transition = 'transform .35s var(--ease-out)';
+    el.style.transform = '';
+    el.addEventListener('transitionend', () => {
+      el.style.transition = '';
+      el.style.transform = '';
+    }, { once: true });
+  }
+}
+
+/** Сжимает строку до нуля и ждёт, пока это доиграет.
+
+    Отдельной анимации для соседей не нужно: высота меняется плавно, и браузер
+    пересчитывает раскладку каждый кадр — остальные строки поднимаются сами,
+    ровно с той же скоростью. Это и есть «карточка сжимается в точку» из §5,
+    только без выдумывания координат: раскладку двигает сам браузер. */
+function collapseRow(id) {
+  return new Promise((resolve) => {
+    const el = [...root.querySelectorAll('.task[data-id]')]
+      .find((r) => r.dataset.id === id);
+    if (!el || noMotion()) { resolve(); return; }
+
+    el.style.overflow = 'hidden';
+    el.style.height = el.offsetHeight + 'px';
+    void el.offsetWidth;                 // иначе браузер не увидит исходной высоты
+    el.style.transition = 'height .26s var(--ease-out), padding .26s var(--ease-out), opacity .2s var(--ease-out)';
+    el.style.height = '0px';
+    el.style.paddingTop = '0px';
+    el.style.paddingBottom = '0px';
+    el.style.opacity = '0';
+    setTimeout(resolve, 290);
+  });
+}
+
 async function toggleTask(id) {
   const t = state.tasks.find((x) => x.id === id);
   if (!t) return;
+
+  const before = rowRects();
   t.done = !t.done;
   t.doneAt = t.done ? Date.now() : null;
   state.flash = id;
   if (t.done) navigator.vibrate?.(12);
   await db.put(t);
   await refresh();
+  playMove(before);
 }
 
 /* Звук в файл копии.
