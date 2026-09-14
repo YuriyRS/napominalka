@@ -21,7 +21,7 @@
   /* Отдельно для нижней панели. Приглушённый цвет хорош для подписей внутри
      экрана, но в панели он стоит на самом краю и читается хуже, чем есть:
      мелкий кегль, тонкие штрихи значка, а в тёмной теме ещё и вокруг чёрное.
-     4,6:1 в светлой и 8,2:1 в тёмной — панель остаётся тихой, но перестаёт
+     4,6:1 в светлой и 9,4:1 в тёмной — панель остаётся тихой, но перестаёт
      пропадать. Приглушённый цвет тут был 3,2:1 и 5,3:1. */
   --nav-ink:       #6F6D65;
   --line:          #E6E4DD;
@@ -99,7 +99,7 @@
     --ink:          #FFFFFF;
     --ink-2:        #C7C6BC;
     --ink-muted:    #85837C;
-    --nav-ink:      #A9A79E;
+    --nav-ink:      #B4B2A8;
     --line:         #2A2930;
     --line-strong:  #39383F;
     --accent:       #8B7CFF;
@@ -123,7 +123,7 @@
   --ink:          #FFFFFF;
   --ink-2:        #C7C6BC;
   --ink-muted:    #85837C;
-  --nav-ink:      #A9A79E;
+  --nav-ink:      #B4B2A8;
   --line:         #2A2930;
   --line-strong:  #39383F;
   --accent:       #8B7CFF;
@@ -432,8 +432,11 @@ input  { font: inherit; color: inherit; }
   border-radius: 50%;
 }
 
+/* 14 px было мелко: внутри кружка 22 px галочка занимала семь пикселей
+   в ширину, и он читался пустым. Ответ на вопрос «сделал или нет» должен
+   быть виден, а не угадываться. */
 .task__check svg {
-  width: 14px; height: 14px;
+  width: 17px; height: 17px;
   stroke: var(--accent-ink);
   stroke-width: 3.2;
   stroke-linecap: round;
@@ -648,15 +651,20 @@ input  { font: inherit; color: inherit; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
   color: var(--nav-ink);
-  font-size: 11px;
-  font-weight: 560;
+  /* 11 px было мелко, а 560 — тонко: панель стоит в самой тёмной части
+     экрана, потому что свечение от акцента вверху к середине уже погасло.
+     На тёмном фоне мелкий тонкий текст исчезает раньше, чем кончится
+     контраст, — глазу не за что зацепиться. */
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: .005em;
   transition: color .2s var(--ease-out);
 }
 
 .nav__item svg {
-  width: 23px; height: 23px;
+  width: 24px; height: 24px;
   stroke: currentColor;
   /* 1.8 было слишком тонко для значка в 23 px: на телефоне штрих
      растворялся раньше, чем цвет переставал читаться */
