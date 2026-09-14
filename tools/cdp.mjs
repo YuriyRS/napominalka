@@ -198,7 +198,7 @@ export async function open({ port, out, width = 400, height = 880, scale = 2, ba
  * Кладёт задачи в IndexedDB до загрузки приложения.
  * Время считается от сегодняшнего дня, чтобы снимок был осмысленным.
  */
-export function seedExpr(tasks) {
+export function seedExpr(tasks, subs = []) {
   return `(async () => {
     const d = new Date();
     const D = (h, m, daysAgo = 0) => {
@@ -237,16 +237,19 @@ export function seedExpr(tasks) {
       // Версия обязана совпадать с db.js. Разойдутся — стенд получит
       // VersionError на любом профиле, где приложение успело создать
       // базу новее. См. ПЛАН.md §7.
-      const rq = indexedDB.open('napominalka', 2);
+      const rq = indexedDB.open('napominalka', 3);
       rq.onupgradeneeded = () => {
         const s = rq.result.createObjectStore('tasks', { keyPath: 'id' });
         s.createIndex('at', 'at');
         // отдельным if, как и в db.js: у уже созданной базы первая
         // проверка истинна, и вложенное создание не выполнилось бы
         if (!rq.result.objectStoreNames.contains('voice')) rq.result.createObjectStore('voice');
+        if (!rq.result.objectStoreNames.contains('subs')) {
+          rq.result.createObjectStore('subs', { keyPath: 'id' });
+        }
       };
       rq.onsuccess = () => {
-        const tx = rq.result.transaction(['tasks', 'voice'], 'readwrite');
+        const tx = rq.result.transaction(['tasks', 'voice', 'subs'], 'readwrite');
         tx.objectStore('tasks').clear();
         const vs = tx.objectStore('voice');
         vs.clear();
@@ -255,6 +258,14 @@ export function seedExpr(tasks) {
           // длительность в описании должна совпадать со звуком, иначе
           // проигрыватель покажет одно, а сыграет другое
           if (t.voice) vs.put(wav(Math.round(t.voice.ms / 1000)), t.voice.id);
+        }
+        const ss = tx.objectStore('subs');
+        ss.clear();
+        // inDays — «через сколько дней спишут»; в базе лежит дата и день
+        // месяца, из которого считается следующее списание (см. nextCharge)
+        for (const { inDays, ...x } of (${JSON.stringify(subs)})) {
+          const at = D(0, 0, -inDays);
+          ss.put({ ...x, nextAt: at, day: new Date(at).getDate() });
         }
         tx.oncomplete = () => res('ok');
         tx.onerror = () => rej(tx.error);
@@ -293,6 +304,22 @@ const demoWave = (seed) => Array.from({ length: 40 }, (_, i) =>
 export const DEMO_VOICE = DEMO_DAY.map((t, i) => (i === 2 || i === 4
   ? { ...t, note: '', voice: { id: 'v' + i, ms: 12000, wave: demoWave(i), type: 'audio/wav' } }
   : t));
+
+/** Подписки: разные периоды, ближайшее списание и две отменённые.
+
+    Суммы в копейках — как и в базе. Дробь в деньгах рано или поздно
+    показывает «9 587.999999999998 ₽» на ровном месте, и лучше это
+    не заводить вовсе. */
+export const DEMO_SUBS = [
+  { id: 's1', title: 'Нетфликс',       amount: 79900,  period: 'month', inDays: 2,  color: 'rose',   state: 'on' },
+  { id: 's2', title: 'Клод',           amount: 200000, period: 'month', inDays: 5,  color: 'orange', state: 'on' },
+  { id: 's3', title: 'Иви',            amount: 39900,  period: 'month', inDays: 12, color: 'violet', state: 'on' },
+  { id: 's4', title: 'Яндекс Плюс',    amount: 39900,  period: 'month', inDays: 20, color: 'amber',  state: 'on' },
+  { id: 's5', title: 'Окко',           amount: 29900,  period: 'month', inDays: 27, color: 'sky',    state: 'on' },
+  { id: 's6', title: 'Хранилище фото', amount: 299000, period: 'year',  inDays: 44, color: 'teal',   state: 'on' },
+  { id: 's7', title: 'Спортзал',       amount: 250000, period: 'month', inDays: 8,  color: 'green',  state: 'off' },
+  { id: 's8', title: 'Музыка',         amount: 16900,  period: 'month', inDays: 9,  color: 'blue',   state: 'off' },
+];
 
 /** Время «сегодня, h:m, минус daysAgo дней».
 

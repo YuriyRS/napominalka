@@ -203,6 +203,95 @@
 </section>
 
 <!-- лист: что сделать с делом. Открывается долгим нажатием -->
+<!-- Форма подписки. Отдельный лист, а не общая форма дела: у подписки другие
+     поля, и свести их в одну форму значило бы набить её полями «на всякий
+     случай» и спрашивать у человека то, чего он не знает. -->
+<section class="sheet" id="sub-sheet" role="dialog" aria-modal="true" aria-labelledby="sub-title">
+  <div class="sheet__grip"></div>
+  <h2 class="sheet__title" id="sub-title">Новая подписка</h2>
+
+  <form id="sub-form" autocomplete="off">
+    <div class="field">
+      <label class="field__label" for="s-title">Что за подписка</label>
+      <input class="field__input" id="s-title" name="title" type="text"
+             placeholder="Нетфликс" required maxlength="60">
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label class="field__label" for="s-amount">Сколько списывают</label>
+        <input class="field__input" id="s-amount" name="amount" type="text"
+               inputmode="decimal" placeholder="799" required>
+      </div>
+      <div class="field">
+        <label class="field__label" for="s-period">Как часто</label>
+        <div class="select">
+          <select class="field__input" id="s-period" name="period">
+            <option value="month">Раз в месяц</option>
+            <option value="year">Раз в год</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Дата, а не «через сколько дней»: человек знает число, а не разницу.
+         Сколько осталось, приложение посчитает само и покажет в списке. -->
+    <div class="field">
+      <label class="field__label" for="s-date">Когда спишут в следующий раз</label>
+      <input class="field__input" id="s-date" name="date" type="date" required>
+    </div>
+
+    <div class="field">
+      <div class="field__label">Значок</div>
+      <div class="swatches" role="group" aria-label="Цвет значка" id="s-colors">
+        <button type="button" data-color-set="violet" style="--sw:#7C3AED" aria-label="Фиолетовый" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+        <button type="button" data-color-set="blue"   style="--sw:#2563EB" aria-label="Синий"      aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+        <button type="button" data-color-set="sky"    style="--sw:#0284C7" aria-label="Голубой"    aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+        <button type="button" data-color-set="teal"   style="--sw:#0D9488" aria-label="Бирюзовый"  aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+        <button type="button" data-color-set="green"  style="--sw:#16A34A" aria-label="Зелёный"    aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+        <button type="button" data-color-set="amber"  style="--sw:#D97706" aria-label="Жёлтый"     aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+        <button type="button" data-color-set="orange" style="--sw:#EA580C" aria-label="Оранжевый"  aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+        <button type="button" data-color-set="rose"   style="--sw:#E11D48" aria-label="Розовый"    aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+      </div>
+    </div>
+
+    <div class="sheet__actions">
+      <button class="btn btn--ghost" type="button" id="sub-cancel">Отмена</button>
+      <button class="btn btn--primary" type="submit" id="sub-submit">Добавить</button>
+    </div>
+  </form>
+</section>
+
+<!-- Лист действий над подпиской. Четыре действия, а не три, как у дела:
+     у подписки две судьбы — «оплачено» и «отменил», — и обе нужны часто. -->
+<section class="sheet" id="sub-acts" role="dialog" aria-modal="true" aria-labelledby="sub-acts-title">
+  <div class="sheet__grip"></div>
+  <h2 class="sheet__title sheet__title--task" id="sub-acts-title"></h2>
+
+  <div class="acts">
+    <button class="act" type="button" data-act="sub-paid">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+      Оплачено
+    </button>
+    <button class="act" type="button" data-act="sub-drop">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      <span id="sub-drop-label">Отменить подписку</span>
+    </button>
+    <button class="act" type="button" data-act="sub-edit">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 20h4.2L19.1 9.1a2.7 2.7 0 0 0-3.8-3.8L4.4 16.2V20z"/><path d="M14.6 6.1l3.3 3.3"/>
+      </svg>Изменить
+    </button>
+    <button class="act act--danger" type="button" data-act="sub-remove">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 6.5h16"/>
+        <path d="M9.5 6.5V4.8A1.3 1.3 0 0 1 10.8 3.5h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7"/>
+        <path d="M6.6 6.5l.85 12.4a1.6 1.6 0 0 0 1.6 1.6h5.9a1.6 1.6 0 0 0 1.6-1.6l.85-12.4"/>
+      </svg>Удалить совсем
+    </button>
+  </div>
+</section>
+
 <section class="sheet" id="task-sheet" role="dialog" aria-modal="true" aria-labelledby="task-sheet-title">
   <div class="sheet__grip"></div>
   <h2 class="sheet__title sheet__title--task" id="task-sheet-title"></h2>

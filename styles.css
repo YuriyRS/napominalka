@@ -1220,6 +1220,152 @@ input  { font: inherit; color: inherit; }
 
 .year__key { display: inline-flex; align-items: center; gap: 6px; }
 
+/* ---------- Подписки ----------
+
+   Смысл экрана — две беды, а не одна: забыл оплатить и платишь зря.
+   Поэтому «отменённая» здесь такая же обычная судьба, как «оплачено»,
+   и у неё своё место внизу, а не корзина. */
+
+.subs__total {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift-2);
+  padding: 20px var(--pad) 18px;
+  margin-bottom: 14px;
+}
+
+.subs__sum {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.subs__sum span {
+  font-size: 16px;
+  font-weight: 550;
+  letter-spacing: 0;
+  color: var(--ink-muted);
+}
+
+.subs__note { margin-top: 7px; font-size: 13.5px; color: var(--ink-muted); }
+.subs__note b { color: var(--ink); font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.subs__list {
+  background: var(--card);
+  border-radius: var(--r-card);
+  box-shadow: var(--lift-2);
+  padding: 6px 0;
+  margin-bottom: 14px;
+}
+
+.subs__head {
+  padding: 2px 6px 8px;
+  font-size: 11px;
+  font-weight: 640;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.sub {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 14px;
+  border-radius: var(--r-inner);
+  text-align: left;
+  transition: background .18s var(--ease-out);
+}
+
+.sub:active { background: var(--card-2); }
+
+/* Значок — буква в цветном кружке, не логотип сервиса: чужие логотипы это
+   товарные знаки, и магазины приложений требуют подтвердить права на всё
+   содержимое. Буква снимает вопрос целиком и работает для сервиса, о котором
+   мы никогда не слышали.
+
+   Фон и цвет буквы выводятся из одного --c: в светлой теме буква выходит
+   темнее фона, в тёмной светлее — и это получается само, без второго набора
+   красок на каждую тему. Так же устроена шкала плотности (--dens). */
+.sub__mark {
+  display: grid;
+  place-items: center;
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  font-size: 17px;
+  font-weight: 700;
+  background: color-mix(in oklab, var(--c) 18%, var(--card));
+  color: color-mix(in oklab, var(--c) 76%, var(--ink));
+}
+
+.sub__mark[data-color="violet"] { --c: #7C3AED; }
+.sub__mark[data-color="blue"]   { --c: #2563EB; }
+.sub__mark[data-color="sky"]    { --c: #0284C7; }
+.sub__mark[data-color="teal"]   { --c: #0D9488; }
+.sub__mark[data-color="green"]  { --c: #16A34A; }
+.sub__mark[data-color="amber"]  { --c: #D97706; }
+.sub__mark[data-color="orange"] { --c: #EA580C; }
+.sub__mark[data-color="rose"]   { --c: #E11D48; }
+
+.sub__body { min-width: 0; }
+
+.sub__name {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sub__when { display: block; margin-top: 2px; font-size: 12.5px; color: var(--ink-muted); }
+
+.sub__money { text-align: right; }
+
+.sub__amount {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.sub__per { display: block; margin-top: 2px; font-size: 12px; color: var(--ink-muted); }
+
+/* Ближайшее списание — не тревога, а взгляд вперёд. Поэтому акцентом,
+   а не красным: красный в приложении занят другим, и тратить его на
+   «через два дня спишут 799 ₽» значило бы кричать на ровном месте. */
+.sub--soon .sub__when { color: var(--accent); font-weight: 620; }
+
+.sub--soon::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent-grad);
+}
+
+.sub--dropped { opacity: .5; }
+.sub--dropped .sub__amount { text-decoration: line-through; }
+
+.subs__list--off { margin-bottom: 0; }
+
+.subs__empty {
+  margin: 0;
+  padding: 26px 18px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-muted);
+}
+
 /* ---------- Повторяющиеся дела ---------- */
 
 /* Первый <select> в проекте. Системную стрелку убираем: она садится

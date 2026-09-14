@@ -82,6 +82,10 @@ const state = {
   monthCursor: null,  // первое число показываемого месяца, см. renderMonth
   monthDay: null,     // полночь выбранного дня, null — показываем календарь
   yearCursor: null,   // номер показываемого года, см. renderYear
+  subs: [],           // подписки, см. renderSubs
+  sheetSub: null,     // id подписки, для которой открыт лист действий
+  editingSub: null,   // id подписки, которую правят в форме
+  subColor: 'violet', // выбранный значок в форме подписки
 };
 
 /* ---------- Оформление ---------- */
@@ -141,7 +145,7 @@ function render() {
     }
   }
   if (state.tab === 'year')  renderYear(f);
-  if (state.tab === 'subs')  renderSoon('Подписки', 'Список подписок, даты списаний и общая сумма', 'Этап 4', f);
+  if (state.tab === 'subs')  renderSubs(f);
   renderNav();
 }
 
@@ -182,7 +186,7 @@ const topBar = (opts = {}) => (opts.back
     // «Месяц» и «Год» идут одной дорогой: крупным шрифтом на них пишется
     // «сентябрь 2026» и «2026», и второй заголовок того же веса спорил бы
     // с ним за глаз — ровно то, от чего ушли на «Сегодня»
-    : state.tab === 'month' || state.tab === 'year'
+    : state.tab === 'month' || state.tab === 'year' || state.tab === 'subs'
       ? `<div class="top top--slim"><span class="top__eyebrow">${esc(TITLES[state.tab])}</span>${gear}</div>`
       : `<div class="top"><h1 class="top__title">${esc(TITLES[state.tab] || '')}</h1>${gear}</div>`);
 
@@ -376,16 +380,6 @@ function emptyState(f) {
       <div class="empty__mark">${svg(ICON.spark)}</div>
       <h2 class="empty__title">Ничего не запланировано</h2>
       <p class="empty__text">Хороший день, чтобы просто выдохнуть. Или запишите что-нибудь, пока не забылось.</p>
-    </div>`;
-}
-
-function renderSoon(title, text, stage, f) {
-  root.innerHTML = `
-    ${topBar()}
-    <div class="soon${f}">
-      <h2 class="soon__title">Ещё не готово</h2>
-      <p class="soon__text">${esc(text)}.</p>
-      <span class="soon__stage">${esc(stage)}</span>
     </div>`;
 }
 
@@ -825,6 +819,131 @@ notePlay.addEventListener('click', () => {
   playVoice(notePlay.dataset.voice, notePlay.closest('.player'));
 });
 
+/* ---------- Подписки ----------
+
+   Смысл экрана — две беды, а не одна. Первая: забыл оплатить, и подписка
+   отвалилась. Вторая, и она дороже: платишь за то, чем не пользуешься, —
+   полгода списывают деньги за сервис, открытый один раз.
+
+   Поэтому у подписки две судьбы, а не одна: «оплачено» и «отменил».
+   Отменённая не исчезает, а уходит вниз отдельным списком: через год это
+   единственное место, где видно, сколько было и на чём сэкономил.
+
+   Значок — буква в цветном кружке, не логотип сервиса. Чужие логотипы это
+   товарные знаки, и магазины приложений требуют подтвердить права на всё
+   содержимое; буква снимает вопрос целиком, работает для сервиса, о котором
+   мы никогда не слышали, и не тянет ни одного запроса в сеть. */
+
+const SOON_DAYS = 3;
+
+/* Те же восемь, что в разметке формы: цвет значка хранится строкой, и разойтись
+   списки не должны — иначе у подписки окажется цвет, которого нет. */
+const SUB_COLORS = ['violet', 'blue', 'sky', 'teal', 'green', 'amber', 'orange', 'rose'];
+
+/** Копейки → «799 ₽». Копейки показываем, только если они есть. */
+function money(cents) {
+  const rub = Math.floor(Math.abs(cents) / 100);
+  const rest = Math.abs(cents) % 100;
+  const s = rub.toLocaleString('ru-RU');
+  return rest ? `${s},${pad2(rest)} ₽` : `${s} ₽`;
+}
+
+/** «799», «799,50», «1 299» → копейки. null — если это не число. */
+function parseMoney(text) {
+  const n = Number(String(text).trim().replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+}
+
+const inMonth = (s) => (s.period === 'year' ? Math.round(s.amount / 12) : s.amount);
+const inYear  = (s) => (s.period === 'year' ? s.amount : s.amount * 12);
+
+const daysIn = (y, m) => new Date(y, m + 1, 0).getDate();
+
+/** Следующее списание: тот же день следующего месяца или года.
+
+    День берётся из sub.day, а не из прошлой даты. Иначе 31-е съезжало бы:
+    в феврале списание 28-го, и следующее вышло бы 28 марта вместо 31-го.
+    Ровно та же ловушка, что у месячного повтора (§4.7), и решается так же. */
+function nextCharge(sub, from = sub.nextAt) {
+  const d = new Date(from);
+  const base = new Date(d.getFullYear(), d.getMonth() + (sub.period === 'year' ? 12 : 1), 1);
+  const day = Math.min(sub.day || d.getDate(), daysIn(base.getFullYear(), base.getMonth()));
+  return new Date(base.getFullYear(), base.getMonth(), day).getTime();
+}
+
+const dayStart = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+
+/** Сколько дней осталось: 0 — сегодня, 1 — завтра, −1 — вчера. */
+const daysLeft = (ms) => Math.round((dayStart(ms) - startOfToday()) / 86_400_000);
+
+/** Как это произносится. Дальше двух недель число уже не помогает —
+    «через 47 дней» ничего не говорит, а «17 октября» говорит. */
+function leftLabel(ms) {
+  const n = daysLeft(ms);
+  if (n === 0) return 'сегодня';
+  if (n === 1) return 'завтра';
+  if (n < 0) return 'день прошёл';
+  if (n <= 14) return `через ${n} ${plural(n, 'день', 'дня', 'дней')}`;
+  return new Date(ms).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+
+const subMark = (sub) => `<span class="sub__mark" data-color="${esc(sub.color || 'violet')}" aria-hidden="true">${
+  esc((sub.title || '?').trim().charAt(0).toUpperCase())}</span>`;
+
+function renderSubs(f) {
+  const on  = state.subs.filter((s) => s.state !== 'off').sort((a, b) => a.nextAt - b.nextAt);
+  const off = state.subs.filter((s) => s.state === 'off')
+    .sort((a, b) => a.title.localeCompare(b.title, 'ru'));
+
+  // Месячный итог округляется до целых рублей намеренно: годовая подписка,
+  // поделённая на двенадцать, даёт копейки, и «4 145,17 ₽» в заголовке
+  // выглядят точностью, которой у оценки всё равно нет. Годовой итог
+  // считается из самих сумм и точен.
+  const month = Math.round(on.reduce((sum, s) => sum + inMonth(s), 0) / 100) * 100;
+  const year  = on.reduce((sum, s) => sum + inYear(s), 0);
+
+  const row = (sub, dropped = false) => {
+    const soon = !dropped && daysLeft(sub.nextAt) <= SOON_DAYS;
+    const cls = ['sub', dropped ? 'sub--dropped' : '', soon ? 'sub--soon' : ''].filter(Boolean).join(' ');
+    const per = sub.period === 'year' ? 'в год' : 'в месяц';
+    return `<button class="${cls}" data-act="sub" data-id="${esc(sub.id)}"
+      aria-label="${esc(`${sub.title}, ${money(sub.amount)} ${per}`)}">
+      ${subMark(sub)}
+      <span class="sub__body">
+        <span class="sub__name">${esc(sub.title)}</span>
+        <span class="sub__when">${dropped ? 'отменена' : esc(leftLabel(sub.nextAt))}</span>
+      </span>
+      <span class="sub__money">
+        <span class="sub__amount">${money(sub.amount)}</span>
+        <span class="sub__per">${per}</span>
+      </span>
+    </button>`;
+  };
+
+  root.innerHTML = `
+    ${topBar()}
+    <div class="subs${f}">
+      ${on.length ? `<div class="subs__total">
+        <div class="subs__sum">${money(month)}<span> в месяц</span></div>
+        <div class="subs__note">${on.length} ${plural(on.length, 'подписка', 'подписки', 'подписок')},
+          за год это <b>${money(year)}</b></div>
+      </div>` : ''}
+
+      <div class="subs__list">${
+        on.length ? on.map((s) => row(s)).join('')
+          : `<p class="subs__empty">Пока ни одной подписки.<br>
+             Запишите — и приложение покажет, сколько уходит в месяц и в год,
+             и предупредит, прежде чем спишут деньги.</p>`}</div>
+
+      ${off.length ? `<div class="subs__head">Отменённые</div>
+        <div class="subs__list subs__list--off">${off.map((s) => row(s, true)).join('')}</div>` : ''}
+
+      <div class="add-bar">
+        <button class="add-btn" data-act="sub-new">${svg(ICON.plus)}Добавить</button>
+      </div>
+    </div>`;
+}
+
 /* ---------- Листы ---------- */
 
 const sheets = {
@@ -832,6 +951,8 @@ const sheets = {
   settings: document.getElementById('settings'),
   task:     document.getElementById('task-sheet'),
   scope:    document.getElementById('scope-sheet'),
+  sub:      document.getElementById('sub-sheet'),
+  subActs:  document.getElementById('sub-acts'),
 };
 const scrim = document.getElementById('sheet-back');
 const undoEl = document.getElementById('undo');
@@ -848,6 +969,107 @@ function openSheet(name) {
   scrim.classList.add('sheet-back--on');
   sheets[name].classList.add('sheet--on');
 }
+
+/* ---------- Форма подписки ---------- */
+
+const subForm      = document.getElementById('sub-form');
+const subTitleEl   = document.getElementById('sub-title');
+const subSubmit    = document.getElementById('sub-submit');
+const subActsTitle = document.getElementById('sub-acts-title');
+const subDropLabel = document.getElementById('sub-drop-label');
+
+function setSubColor(color) {
+  state.subColor = color;
+  for (const b of document.querySelectorAll('#s-colors [data-color-set]')) {
+    b.setAttribute('aria-pressed', String(b.dataset.colorSet === color));
+  }
+}
+
+document.getElementById('s-colors').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-color-set]');
+  if (b) setSubColor(b.dataset.colorSet);
+});
+
+document.getElementById('sub-cancel').addEventListener('click', () => closeSheets());
+
+/** Цвет по умолчанию — тот, которого в списке меньше всех: несколько
+    подписок подряд одинакового цвета слились бы в один столбик. */
+function freeColor() {
+  const used = new Map(SUB_COLORS.map((c) => [c, 0]));
+  for (const s of state.subs) if (used.has(s.color)) used.set(s.color, used.get(s.color) + 1);
+  return [...used.entries()].sort((a, b) => a[1] - b[1])[0][0];
+}
+
+function openSubNew() {
+  state.editingSub = null;
+  subForm.reset();
+  // Дата по умолчанию — через месяц: подписку записывают, когда она уже есть,
+  // и следующее списание почти всегда впереди.
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  subForm.elements.date.value = dateValue(d.getTime());
+  setSubColor(freeColor());
+  subTitleEl.textContent = 'Новая подписка';
+  subSubmit.textContent = 'Добавить';
+  openSheet('sub');
+  setTimeout(() => subForm.elements.title.focus(), 360);
+}
+
+function openSubEdit(id) {
+  const s = state.subs.find((x) => x.id === id);
+  if (!s) return;
+  state.editingSub = id;
+  subForm.elements.title.value = s.title;
+  subForm.elements.amount.value = String(s.amount / 100).replace('.', ',');
+  subForm.elements.period.value = s.period;
+  subForm.elements.date.value = dateValue(s.nextAt);
+  setSubColor(s.color || SUB_COLORS[0]);
+  subTitleEl.textContent = 'Изменить подписку';
+  subSubmit.textContent = 'Сохранить';
+  openSheet('sub');
+}
+
+function openSubActs(id) {
+  const s = state.subs.find((x) => x.id === id);
+  if (!s) return;
+  state.sheetSub = id;
+  subActsTitle.textContent = s.title;
+  // у отменённой действие обратное — и подпись другая, иначе непонятно,
+  // что будет
+  subDropLabel.textContent = s.state === 'off' ? 'Вернуть в подписки' : 'Отменить подписку';
+  openSheet('subActs');
+}
+
+subForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const title = subForm.elements.title.value.trim();
+  const amount = parseMoney(subForm.elements.amount.value);
+  if (!title || amount === null) {
+    if (amount === null) subForm.elements.amount.focus();
+    return;
+  }
+
+  const [y, mo, d] = subForm.elements.date.value.split('-').map(Number);
+  const old = state.editingSub ? state.subs.find((x) => x.id === state.editingSub) : null;
+
+  await db.putSub({
+    id: old ? old.id : db.newId(),
+    title,
+    amount,
+    period: subForm.elements.period.value,
+    nextAt: new Date(y, mo - 1, d).getTime(),
+    // день месяца хранится отдельно: из него считается следующее списание,
+    // и 31-е не съезжает на 28-е навсегда (см. nextCharge)
+    day: d,
+    color: state.subColor,
+    state: old ? old.state : 'on',
+    createdAt: old ? old.createdAt : Date.now(),
+  });
+
+  state.editingSub = null;
+  closeSheets();
+  await refresh();
+});
 
 function closeSheets() {
   scrim.classList.remove('sheet-back--on');
@@ -1382,8 +1604,9 @@ async function exportBackup() {
   for (const [id, blob] of await db.allVoice()) audio[id] = await blobToBase64(blob);
 
   const payload = {
-    app: 'napominalka', version: 2, exportedAt: new Date().toISOString(),
+    app: 'napominalka', version: 3, exportedAt: new Date().toISOString(),
     tasks: state.tasks,
+    subs: state.subs,
     audio,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1417,6 +1640,9 @@ async function importBackup(file) {
 
   await db.replaceAll(tasks);
   await db.replaceVoice(pairs);
+  // копия версии 1 и 2 подписок не знает вовсе — тогда список просто пустой,
+  // и прежние подписки уходят вместе со всем остальным
+  await db.replaceSubs(Array.isArray(data.subs) ? data.subs : []);
   await refresh();
 }
 
@@ -1424,6 +1650,7 @@ async function importBackup(file) {
 
 async function refresh() {
   state.tasks = await db.all();
+  state.subs = await db.allSubs();
   render();
 }
 
@@ -1497,6 +1724,29 @@ document.addEventListener('click', async (e) => {
       return;
     }
     if (a === 'play') { playVoice(act.dataset.voice, act.closest('.player')); return; }
+
+    // подписки
+    if (a === 'sub-new') { openSubNew(); return; }
+    if (a === 'sub') { openSubActs(act.dataset.id); return; }
+    if (a === 'sub-edit') { if (state.sheetSub) openSubEdit(state.sheetSub); return; }
+    if (a === 'sub-paid' || a === 'sub-drop') {
+      const s = state.subs.find((x) => x.id === state.sheetSub);
+      if (!s) return;
+      // «Оплачено» двигает дату вперёд; «Отменить» переключает судьбу.
+      // Это два разных действия, и оба обычные — не исключение из правила.
+      await db.putSub(a === 'sub-paid'
+        ? { ...s, nextAt: nextCharge(s) }
+        : { ...s, state: s.state === 'off' ? 'on' : 'off' });
+      closeSheets();
+      await refresh();
+      return;
+    }
+    if (a === 'sub-remove') {
+      if (state.sheetSub) await db.removeSub(state.sheetSub);
+      closeSheets();
+      await refresh();
+      return;
+    }
 
     if (a === 'scope-one') { answerScope('one'); return; }
     if (a === 'scope-all') { answerScope('all'); return; }

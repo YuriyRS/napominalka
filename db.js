@@ -20,9 +20,10 @@ const DB_NAME = 'napominalka';
    4. Помнить, что приложение у людей уже установлено: onupgradeneeded
       обязан **добавлять, а не пересоздавать**. Старая база на телефоне
       должна пережить обновление вместе со всеми делами. */
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = 'tasks';
 const VOICE = 'voice';
+const SUBS = 'subs';
 
 let dbp = null;
 
@@ -40,6 +41,12 @@ function open() {
       if (!db.objectStoreNames.contains(VOICE)) {
         // без keyPath: ключ задаётся снаружи и совпадает с voice.id в деле
         db.createObjectStore(VOICE);
+      }
+      // Подписки — не дела, и в таблицу дел их не положить: те читаются
+      // все разом и показываются в ленте дня и в календаре, а подписке там
+      // делать нечего. Отдельной таблицей, отдельным if — как voice.
+      if (!db.objectStoreNames.contains(SUBS)) {
+        db.createObjectStore(SUBS, { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -106,6 +113,32 @@ export function replaceAll(tasks) {
 export function newId() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
   return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+/* ---------- Подписки ----------
+
+   Сумма хранится в **копейках целым числом**, а не в рублях дробью. Дробь
+   в деньгах — это 0.1 + 0.2, и годовой итог из двенадцати подписок рано или
+   поздно покажет «9 587.999999999998 ₽». Копейки этого не умеют. */
+
+export function allSubs() {
+  return tx('readonly', (s) => s.getAll(), SUBS);
+}
+
+export function putSub(sub) {
+  return tx('readwrite', (s) => s.put(sub), SUBS);
+}
+
+export function removeSub(id) {
+  return tx('readwrite', (s) => s.delete(id), SUBS);
+}
+
+/** Заменить все подписки — для импорта из копии. */
+export function replaceSubs(list) {
+  return tx('readwrite', (s) => {
+    s.clear();
+    for (const x of list) s.put(x);
+  }, SUBS);
 }
 
 /* ---------- Звук голосовых заметок ----------

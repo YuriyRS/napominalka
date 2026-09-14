@@ -8,7 +8,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, DEMO_YEAR, DEMO_VOICE, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, DEMO_YEAR, DEMO_VOICE, DEMO_SUBS, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
@@ -685,7 +685,7 @@ await sleep(1200);
 
 say('звук в базе', await b.evalIn(`(async () => {
   const db = await new Promise((res, rej) => {
-    const rq = indexedDB.open('napominalka', 2);
+    const rq = indexedDB.open('napominalka', 3);
     rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
   });
   const store = db.transaction('voice', 'readonly').objectStore('voice');
@@ -755,7 +755,7 @@ say('копия обратно', await b.evalIn(`(async () => {
 
 await b.evalIn(`(async () => {
   const db = await new Promise((res) => {
-    const rq = indexedDB.open('napominalka', 2);
+    const rq = indexedDB.open('napominalka', 3);
     rq.onsuccess = () => res(rq.result);
   });
   const tx = db.transaction('voice', 'readwrite');
@@ -765,7 +765,7 @@ await sleep(500);
 
 const countVoice = `(async () => {
   const db = await new Promise((res) => {
-    const rq = indexedDB.open('napominalka', 2);
+    const rq = indexedDB.open('napominalka', 3);
     rq.onsuccess = () => res(rq.result);
   });
   const keys = await new Promise((res) => {
@@ -779,6 +779,98 @@ say('до метлы', await b.evalIn(countVoice));
 await b.navigate(b.url);
 await sleep(1800);
 say('после метлы', await b.evalIn(countVoice));
+
+/* ---------- подписки ----------
+
+   На снимке видно, что экран собрался. Здесь проверяется то, чего на нём
+   не видно: итоги, перенос даты и то, что отменённая не исчезает.
+
+   Главная проверка — **31-е число**. Месячное списание с 31-м обязано
+   пройти февраль как 28-е и вернуться к 31-му в марте. Если считать
+   следующую дату от предыдущей, оно съедет на 28-е навсегда: ошибка
+   тихая, и всплыла бы она через год. */
+
+const readSub = (title) => b.evalIn(`(async () => {
+  const db = await new Promise((res) => {
+    const rq = indexedDB.open('napominalka', 3);
+    rq.onsuccess = () => res(rq.result);
+  });
+  const all = await new Promise((res) => {
+    const r = db.transaction('subs', 'readonly').objectStore('subs').getAll();
+    r.onsuccess = () => res(r.result);
+  });
+  const s = all.find((x) => x.title === '${title}');
+  return s ? new Date(s.nextAt).toLocaleDateString('ru-RU') : 'нет';
+})()`);
+
+await b.evalIn(seedExpr([], DEMO_SUBS));
+await b.navigate(b.url);
+await sleep(1800);
+await b.evalIn(`document.querySelector('[data-tab="subs"]').click()`);
+await sleep(600);
+await b.shot('подписки');
+
+say('подписки', await b.evalIn(`JSON.stringify({
+  всего: document.querySelectorAll('.sub').length,
+  отменённых: document.querySelectorAll('.sub--dropped').length,
+  итог_в_месяц: document.querySelector('.subs__sum')?.textContent.trim(),
+  за_год: document.querySelector('.subs__note b')?.textContent,
+  ближайшая: document.querySelector('.sub')?.querySelector('.sub__name')?.textContent,
+  подсвечено_скоро: document.querySelectorAll('.sub--soon').length,
+  значков: document.querySelectorAll('.sub__mark').length,
+})`));
+
+/* 31-е число: заводим подписку с этой датой и трижды отмечаем «оплачено».
+   Ждём 28 февраля, 31 марта, 30 апреля — то есть возврат к 31-му, как
+   только месяц позволит. */
+await b.evalIn(`document.querySelector('[data-act="sub-new"]').click()`);
+await sleep(700);
+await b.evalIn(`(() => {
+  const f = document.querySelector('#sub-form');
+  f.elements.title.value = 'Проверка 31-го';
+  f.elements.amount.value = '100';
+  f.elements.date.value = '2026-01-31';
+  f.requestSubmit();
+})()`);
+await sleep(900);
+say('заведена 31-м', await readSub('Проверка 31-го'));
+
+const paid = [];
+for (let i = 0; i < 3; i++) {
+  await b.evalIn(`(() => {
+    [...document.querySelectorAll('.sub')]
+      .find((r) => r.querySelector('.sub__name').textContent === 'Проверка 31-го').click();
+  })()`);
+  await sleep(500);
+  await b.evalIn(`document.querySelector('[data-act="sub-paid"]').click()`);
+  await sleep(700);
+  paid.push(await readSub('Проверка 31-го'));
+}
+say('после трёх оплат', JSON.stringify(paid));
+
+// отменённая уходит вниз, но не исчезает
+await b.evalIn(`(() => {
+  [...document.querySelectorAll('.sub')]
+    .find((r) => r.querySelector('.sub__name').textContent === 'Проверка 31-го').click();
+})()`);
+await sleep(500);
+await b.evalIn(`document.querySelector('[data-act="sub-drop"]').click()`);
+await sleep(800);
+say('отменена', await b.evalIn(`JSON.stringify({
+  всего: document.querySelectorAll('.sub').length,
+  отменённых: document.querySelectorAll('.sub--dropped').length,
+  внизу: [...document.querySelectorAll('.sub--dropped .sub__name')].map((e) => e.textContent),
+})`));
+
+// удаление совсем — и её больше нет
+await b.evalIn(`(() => {
+  [...document.querySelectorAll('.sub')]
+    .find((r) => r.querySelector('.sub__name').textContent === 'Проверка 31-го').click();
+})()`);
+await sleep(500);
+await b.evalIn(`document.querySelector('[data-act="sub-remove"]').click()`);
+await sleep(800);
+say('удалена', await readSub('Проверка 31-го'));
 
 // Окна alert приложение показывает само, и это не проблема стенда —
 // но знать о них стоит, иначе они проходят незамеченными

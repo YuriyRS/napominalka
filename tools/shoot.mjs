@@ -9,7 +9,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, DEMO_YEAR, DEMO_VOICE, sleep } from './cdp.mjs';
+import { open, seedExpr, DEMO_DAY, DEMO_LATE, DEMO_MONTH, DEMO_REPEAT, DEMO_YEAR, DEMO_VOICE, DEMO_SUBS, sleep } from './cdp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
@@ -27,6 +27,8 @@ const CASES = {
   год:        { tasks: DEMO_YEAR, dark: false, height: 900, tab: 'year' },
   'год-тёмная': { tasks: DEMO_YEAR, dark: true,  height: 900, tab: 'year' },
   голос:      { tasks: DEMO_VOICE, dark: false, height: 880 },
+  подписки:   { tasks: [], subs: DEMO_SUBS, dark: false, height: 900, tab: 'subs' },
+  'подписки-тёмная': { tasks: [], subs: DEMO_SUBS, dark: true, height: 900, tab: 'subs' },
 };
 
 const [name = 'обычный', height] = process.argv.slice(2);
@@ -41,7 +43,7 @@ const browser = await open({ port: 8100, out: OUT, width: 400, height: w, base: 
 
 await browser.navigate(browser.url);
 await sleep(1000);
-await browser.evalIn(seedExpr(c.tasks));
+await browser.evalIn(seedExpr(c.tasks, c.subs));
 await browser.setSystemTheme(c.dark ? 'dark' : 'light');
 await browser.navigate(browser.url);
 await sleep(1500);
