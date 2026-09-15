@@ -154,7 +154,15 @@ export async function open({ port, out, width = 400, height = 880, scale = 2, ba
     /** Выполнить выражение на странице и вернуть значение. */
     async evalIn(expression) {
       const r = await S('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-      if (r.exceptionDetails) problems.push('EVAL: ' + r.exceptionDetails.text);
+      /* Сообщение, а не только «Uncaught».
+
+         Браузер кладёт текст ошибки в exception.description, а в text лежит
+         одно слово. Без описания в отчёте стоит «EVAL: Uncaught» и больше
+         ничего — искать причину приходится перебором. */
+      if (r.exceptionDetails) {
+        const d = r.exceptionDetails;
+        problems.push('EVAL: ' + (d.exception?.description || d.text));
+      }
       return r.result?.value;
     },
 

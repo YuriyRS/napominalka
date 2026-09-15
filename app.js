@@ -1185,7 +1185,116 @@ function syncSettings() {
     b.setAttribute('aria-pressed', String(b.dataset.currencySet === state.currency));
   }
   currencyHint.textContent = 'Сейчас — ' + (CURRENCIES[state.currency] || CURRENCIES.rub).name;
+  // Строку установки настраиваем первой: её проверяет стенд, а строка
+  // напоминаний спрашивает у браузера подписку — это ожидание, и оно
+  // не должно задерживать соседей.
   syncInstallRow();
+  syncRemindersRow();
+}
+
+/* ---------- Напоминания ----------
+
+   Приложение не умеет будить телефон само: это умеет только служба push,
+   а её просит кто-то со стороны. Поэтому есть сервер-будильник — и он
+   **не знает ни одного названия**. Телефон выгружает ему список времён
+   и номеров дел; номер — случайная строка, по которой понять нечего.
+   Сервер в назначенную минуту шлёт этот номер обратно, а служба внутри
+   приложения находит дело у себя и показывает. Содержимое задач не покидает
+   телефон не потому, что мы его шифруем, а потому, что оно и не уходило.
+
+   Сервер может быть недоступен, выключен, ещё не куплен — приложение от
+   этого не ломается: всё остальное работает и без него. Просто не будет
+   напоминаний, и строка в настройках скажет об этом прямо. */
+
+const SERVER = '';   // адрес сервера-будильника; пусто — напоминаний нет
+
+/* Публичный ключ VAPID. Секретом не является — его видит каждый, кто открыл
+   приложение. Вторая копия лежит в tools/push.html: та страница самодостаточна
+   и ничего из приложения не подтягивает. Меняются они только вместе,
+   командой node tools/vapid.mjs заново. */
+const VAPID_KEY = 'BHrtejqCcTkiERnKOzuPD9q-Ueh_8pNvYQ19h7Xyreuf0jSMA4HLUbRC_r8pYOtMHyijfM5A_RPUexbuCMruLm8';
+
+const fromBase64 = (s) => {
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  const bin = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+};
+
+const canRemind = () => SERVER && 'serviceWorker' in navigator
+  && 'PushManager' in window && 'Notification' in window;
+
+const pushReady = async () => {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    return await reg.pushManager.getSubscription();
+  } catch { return null; }
+};
+
+/** Подписка нужна и серверу, и нам: это пропуск, по которому он узнаёт,
+    кому будить. Оформляется один раз и живёт, пока её не отзовут. */
+async function enableReminders() {
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') return null;
+
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: fromBase64(VAPID_KEY),
+    });
+  }
+  return sub;
+}
+
+/** Выгрузить времена на сервер.
+
+    Только то, что впереди и в пределах суток: список дел на год вперёд
+    серверу не нужен, а дел на год вперёд у человека и нет. Сделанное
+    и удалённое не выгружаем — будить по ним не о чем. */
+let timesAt = 0;   // когда выгружали в прошлый раз
+
+async function syncTimes(force = false) {
+  if (!canRemind()) return;
+  const now = Date.now();
+  if (!force && now - timesAt < 60_000) return;   // не чаще раза в минуту
+  timesAt = now;
+
+  try {
+    const sub = await pushReady();
+    if (!sub) return;
+    const times = state.tasks
+      .filter((t) => !t.done && !t.skipped && t.at > now && t.at < now + 86_400_000)
+      .map((t) => ({ id: t.id, at: t.at }));
+
+    await fetch(SERVER + '/api/times', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription: sub.toJSON(), times }),
+    });
+  } catch { /* сервер недоступен — молчим: напоминания не главное в приложении */ }
+}
+
+/** Что показать в настройках. Строка есть всегда: разрешение можно отозвать
+    в любой момент, и человек должен увидеть, что делать, а не пустоту. */
+async function syncRemindersRow() {
+  const hint = document.getElementById('remind-hint');
+  const btn = document.getElementById('remind-btn');
+
+  if (!canRemind()) {
+    hint.textContent = SERVER
+      ? 'Этот браузер напоминать не умеет'
+      : 'Сервер напоминаний ещё не поднят — всё остальное работает';
+    btn.hidden = true;
+    return;
+  }
+
+  const on = Notification.permission === 'granted' && Boolean(await pushReady().catch(() => null));
+  btn.hidden = false;
+  btn.textContent = on ? 'Выключить' : 'Включить';
+  hint.textContent = on
+    ? 'Пуш придёт, даже когда приложение закрыто'
+    : 'Пока приложение закрыто — не напомнит';
 }
 
 /* ---------- Установка на телефон ----------
@@ -1782,6 +1891,9 @@ async function refresh() {
   state.tasks = await db.all();
   state.subs = await db.allSubs();
   render();
+  // Список времён на сервере держим свежим. Не ждём: напоминания — не то,
+  // ради чего стоит задерживать отрисовку. Внутри свой предел частоты.
+  syncTimes();
 }
 
 document.addEventListener('click', async (e) => {
@@ -1854,6 +1966,19 @@ document.addEventListener('click', async (e) => {
       return;
     }
     if (a === 'play') { playVoice(act.dataset.voice, act.closest('.player')); return; }
+
+    if (a === 'remind') {
+      try {
+        const sub = await pushReady();
+        if (sub) {
+          await sub.unsubscribe();     // отписались — сервер узнает об этом сам, ответом 410
+        } else if (await enableReminders()) {
+          await syncTimes(true);
+        }
+      } catch { /* отказ в разрешении — не беда, покажем это строкой */ }
+      await syncRemindersRow();
+      return;
+    }
 
     // подписки
     if (a === 'sub-new') { openSubNew(); return; }

@@ -211,6 +211,18 @@
     <button class="btn btn--ghost btn--mini" type="button" data-act="import">Загрузить</button>
   </div>
 
+  <!-- Напоминания. Строка есть всегда, меняется только её содержимое:
+       разрешение спрашивают один раз и помнят, а браузер может его отозвать
+       в любой момент — и тогда человек должен увидеть, что делать, а не
+       пустое место. Решает syncRemindersRow() в app.js. -->
+  <div class="opt" id="remind-row">
+    <div>
+      <div class="opt__name">Напоминания</div>
+      <div class="opt__hint" id="remind-hint">Пока приложение закрыто</div>
+    </div>
+    <button class="btn btn--ghost btn--mini" type="button" data-act="remind" id="remind-btn">Включить</button>
+  </div>
+
   <!-- Строка про установку. hidden в разметке, а не из скрипта: так она
        не мелькнёт до первой отрисовки. Что показывать внутри — кнопку или
        подсказку — решает syncInstallRow() в app.js, там же и почему -->

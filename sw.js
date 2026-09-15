@@ -86,6 +86,30 @@ self.addEventListener('fetch', (e) => {
   })());
 });
 
+/** Найти дело по номеру.
+
+    Сервер шлёт только номер — случайную строку, по которой понять нечего.
+    Что за дело, знает только телефон: он его у себя и находит. Названия
+    и заметки наружу не уходят ни в каком виде.
+
+    База открывается **без номера версии** намеренно. С номером он должен был
+    бы совпадать с db.js, а версия уже дублируется в стенде — третьего места,
+    где она может разойтись, заводить не надо. Без номера открывается то,
+    что есть сейчас, и обновление схемы ничего здесь не ломает. */
+function findTask(id) {
+  return new Promise((resolve) => {
+    const rq = indexedDB.open('napominalka');
+    rq.onerror = () => resolve(null);
+    rq.onsuccess = () => {
+      try {
+        const r = rq.result.transaction('tasks', 'readonly').objectStore('tasks').get(id);
+        r.onsuccess = () => resolve(r.result || null);
+        r.onerror = () => resolve(null);
+      } catch { resolve(null); }
+    };
+  });
+}
+
 /* Приём push.
 
    Пока задача одна: показать, что пуш дошёл, и во сколько. Время
@@ -106,20 +130,52 @@ self.addEventListener('push', (e) => {
   let data = null;
   try { data = e.data && e.data.json(); } catch { data = null; }
 
-  e.waitUntil(self.registration.showNotification(data?.title || 'Напоминалка', {
-    body: data?.body || 'Пуш дошёл в ' + new Date().toLocaleTimeString('ru-RU'),
-    tag: 'napominalka-check',
-    icon: './icons/icon-192.png',
-    badge: './icons/icon-192.png',
+  e.waitUntil((async () => {
+    /* Три случая, и они разные.
 
-    /* Две кнопки — предел Chrome: третью он отбрасывает молча.
-       Поддерживает ли их Android — проверяем, на компьютере они есть. */
-    actions: [
-      { action: 'done', title: 'Готово' },
-      { action: 'later', title: 'Позже' },
-    ],
-  }));
+       1. Пришёл номер дела — так шлёт наш сервер. Дело ищем у себя.
+       2. Пришёл готовый заголовок — так шлют проверки из tools/. Нужен,
+          чтобы проверять доставку, не заводя дел.
+       3. Не пришло ничего — пуш без нагрузки. Тоже проверка: показывает
+          время доставки, по нему и меряется задержка. */
+    let title = data?.title || 'Напоминалка';
+    let body = data?.body || 'Пуш дошёл в ' + new Date().toLocaleTimeString('ru-RU');
+    let tag = 'napominalka-check';
+
+    if (data?.id) {
+      const task = await findTask(data.id);
+      // Дела нет или оно уже сделано — будить не о чем. Молчание здесь
+      // правильное: человек его удалил или закрыл, и напоминать не о чем.
+      if (!task || task.done) return;
+      title = task.title;
+      body = [hhmm(task.at), task.note].filter(Boolean).join(' · ');
+      /* Метчик — номер дела. Иначе второе уведомление молча съест первое:
+         Android считает одинаковые метчики одним уведомлением и заменяет
+         без звука. Проверено и записано в §6 плана. */
+      tag = 'task-' + task.id;
+    }
+
+    await self.registration.showNotification(title, {
+      body,
+      tag,
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+
+      /* Две кнопки — предел Chrome: третью он отбрасывает молча.
+         Поддерживает ли их Android — проверяем, на компьютере они есть. */
+      actions: [
+        { action: 'done', title: 'Готово' },
+        { action: 'later', title: 'Позже' },
+      ],
+    });
+  })());
 });
+
+/** Время в том же виде, что и в ленте: «15:00». */
+function hhmm(ts) {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 
 /* Тап по уведомлению открывает приложение, а не новую вкладку
    поверх уже открытой. Нажатие на кнопку вместо этого показывает
