@@ -1,0 +1,80 @@
+# Сборка APK.
+
+# Собирает GitHub, а не эта машина, и это не удобство, а условие.
+# У пользователя интернет 25–35 КБ/с: JDK и Android SDK весят около гигабайта,
+# и качать их было бы вечером, а то и ночью. Здесь же скачивается только
+# готовый APK — мегабайт десять.
+
+name: APK
+
+on:
+  push:
+    branches: [main]
+    # Собираем не на каждый коммит: правка плана или стенда к приложению
+    # отношения не имеет, а сборка идёт минуты.
+    paths:
+      - 'index.html'
+      - 'app.js'
+      - 'db.js'
+      - 'styles.css'
+      - 'manifest.json'
+      - 'icons/**'
+      - 'fonts/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'tools/www.mjs'
+      - '.github/workflows/apk.yml'
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Java 21 — то, что требует Gradle из состава Capacitor 8
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Зависимости
+        run: npm install --no-audit --no-fund
+
+      - name: Собрать www/
+        run: npm run www
+
+      # android/ не хранится в репозитории: это сотни сгенерированных файлов,
+      # которые ничего не значат и устаревают молча. Собираем на месте —
+      # дольше на минуту, зато всегда из свежего.
+      - name: Создать проект Android
+        run: npx cap add android
+
+      - name: Разложить приложение и плагины
+        run: npx cap sync android
+
+      - name: Собрать APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Переименовать
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             "out/domovoy-${GITHUB_SHA::7}.apk"
+          ls -lh out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: domovoy-apk
+          path: out/*.apk
+          retention-days: 30

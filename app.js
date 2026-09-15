@@ -2202,6 +2202,16 @@ setInterval(() => {
   if (label) label.textContent = hhmm(now);
 }, 30_000);
 
-if ('serviceWorker' in navigator) {
+/* Сервис-воркер — только в браузере.
+
+   В приложении для телефона он не нужен: файлы лежат внутри самого
+   приложения, кэшировать нечего. И вреден: он начал бы отдавать сохранённое
+   вместо свежего — то есть ровно та беда, от которой мы избавлялись
+   в браузере, только теперь ещё и без перезагрузки страницы.
+
+   Опознаём приложение по мостику, который Capacitor кладёт в страницу. */
+const isNativeApp = Boolean(window.Capacitor?.isNativePlatform?.());
+
+if (!isNativeApp && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

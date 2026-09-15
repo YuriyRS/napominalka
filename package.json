@@ -1,0 +1,15 @@
+{
+  "name": "domovoy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Домовой — напоминалка для семьи",
+  "scripts": {
+    "www": "node tools/www.mjs"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/local-notifications": "^8.3.1"
+  }
+}
