@@ -82,9 +82,43 @@ for (const text of tests) {
   );
 }
 
+/* Сверка с эталоном из стандарта.
+
+   Браузер проверяет, что тело читается, — но не что оно собрано **точно
+   так, как положено**. Мелкая вольность в порядке байтов или в соли пройдёт
+   незамеченной: свой шифр свой же и прочтёт.
+
+   Поэтому второй проверкой — готовый пример из RFC 8291, приложение A:
+   там заданы и ключи, и соль, и точный ответ. Совпало побайтово — значит
+   собрано по стандарту, а не просто «само с собой согласно». */
+const RFC = {
+  plaintext: 'When I grow up, I want to be a watermelon',
+  uaPublic: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4',
+  authSecret: 'BTBZMqHH6r4Tts7J_aSIgg',
+  asPrivate: 'yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw',
+  salt: 'DGv6ra1nlYgDCS1FRnbzlw',
+  expected: 'DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27ml'
+    + 'mlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPT'
+    + 'pK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN',
+};
+
+const got = encrypt(
+  RFC.plaintext,
+  Buffer.from(RFC.uaPublic, 'base64url'),
+  Buffer.from(RFC.authSecret, 'base64url'),
+  { privateKey: Buffer.from(RFC.asPrivate, 'base64url'), salt: Buffer.from(RFC.salt, 'base64url') },
+).toString('base64url');
+
+const rfcOk = got === RFC.expected;
+console.log(rfcOk
+  ? 'ок   эталон RFC 8291 сошёлся побайтово'
+  : 'НЕТ  эталон RFC 8291 не сошёлся\n     ждали: ' + RFC.expected.slice(0, 60)
+    + '\n     вышло: ' + got.slice(0, 60));
+if (!rfcOk) wrong++;
+
 console.log(wrong
-  ? `\nНЕ ПРОШЛО: ${wrong} из ${tests.length}`
-  : `\nвсё прочитано браузером — ${tests.length} из ${tests.length}`);
+  ? `\nНЕ ПРОШЛО: ${wrong}`
+  : `\nвсё сошлось — ${tests.length} нагрузок и эталон стандарта`);
 if (b.problems.length) console.log('ошибки в браузере:', b.problems.join(' | '));
 
 await b.close();
@@ -120,10 +154,10 @@ function decryptInBrowser(browser, body) {
     const ikmKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
     const cek = await crypto.subtle.deriveBits(
       { name: 'HKDF', hash: 'SHA-256', salt,
-        info: new TextEncoder().encode('Content-Encoding: aes128gcm\\u0000\\u0001') }, ikmKey, 128);
+        info: new TextEncoder().encode('Content-Encoding: aes128gcm\\u0000') }, ikmKey, 128);
     const nonce = await crypto.subtle.deriveBits(
       { name: 'HKDF', hash: 'SHA-256', salt,
-        info: new TextEncoder().encode('Content-Encoding: nonce\\u0000\\u0001') }, ikmKey, 96);
+        info: new TextEncoder().encode('Content-Encoding: nonce\\u0000') }, ikmKey, 96);
 
     const key = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['decrypt']);
     const plain = new Uint8Array(await crypto.subtle.decrypt(

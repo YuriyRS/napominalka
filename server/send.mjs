@@ -43,7 +43,25 @@ if (!subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys?.
 }
 
 const keys = JSON.parse(fs.readFileSync(KEY_FILE, 'utf8'));
-const payload = JSON.stringify({ title: 'Напоминалка', body: text });
+
+/* Вторым доводом можно дать и простой текст, и готовый JSON.
+
+   Про текст: он целиком уходит в подпись уведомления, а заголовком будет
+   «Напоминалка». Про JSON: так проверяется форма, которой пользуется сервер, —
+   {"title": …, "body": …}.
+
+   Зачем это различать. Я однажды передал сюда готовый JSON как текст,
+   и он завернулся второй раз: заголовок вышел «Напоминалка», а подписью —
+   строка с фигурными скобками. Выглядело как ошибка в шифровании,
+   хотя шифрование доехало идеально, вместе с кавычками. */
+let payload;
+try {
+  const parsed = JSON.parse(text);
+  payload = parsed && typeof parsed === 'object' && parsed.title ? text
+    : JSON.stringify({ title: 'Напоминалка', body: text });
+} catch {
+  payload = JSON.stringify({ title: 'Напоминалка', body: text });
+}
 
 console.log('Отправляем в', new Date().toLocaleTimeString('ru-RU'), '—', text.length, 'символов');
 

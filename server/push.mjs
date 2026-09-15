@@ -50,12 +50,16 @@ function vapidJwt(endpoint, keys, contact) {
     собрано тело — видно только сверкой с тем, кто умеет расшифровывать.
     Такой есть у стенда: браузер расшифровывает ровно тем же кодом, что
     и телефон. См. tools/crypto-check.mjs. */
-export function encrypt(payload, uaPublic, authSecret) {
+export function encrypt(payload, uaPublic, authSecret, fixed = null) {
   /* Одноразовая пара сервера живёт ровно один пуш и никуда не записывается.
      Переиспользовать её нельзя: ключ перестанет быть одноразовым, и это
-     уже не мелочь, а дыра. */
+     уже не мелочь, а дыра.
+
+     `fixed` — только для проверки по эталону из стандарта. В обычной работе
+     он не передаётся, и пара всегда новая: подставить ключ снаружи можно
+     ровно затем, чтобы сверить результат с известным ответом, и никак иначе. */
   const ecdh = crypto.createECDH('prime256v1');
-  ecdh.generateKeys();
+  if (fixed) ecdh.setPrivateKey(fixed.privateKey); else ecdh.generateKeys();
   const asPublic = ecdh.getPublicKey();
   const secret = ecdh.computeSecret(uaPublic);
 
@@ -68,11 +72,23 @@ export function encrypt(payload, uaPublic, authSecret) {
   const ikm = crypto.hkdfSync('sha256', secret, authSecret,
     Buffer.concat([Buffer.from('WebPush: info\0'), uaPublic, asPublic]), 32);
 
-  const salt = crypto.randomBytes(16);
+  /* В этих двух строках 0x01 в конце быть НЕ ДОЛЖНО, и это стоило дня.
+
+     Стандарт записывает вывод ключа как `HKDF-Expand(PRK, key_info || 0x01, 16)`,
+     и `|| 0x01` там — не часть строки, а счётчик блока, который механизм
+     вывода дописывает сам. Я прочитал это буквально, вписал 0x01 руками —
+     и получил `…\x00\x01\x01`: лишний байт, другие ключи, и телефон молча
+     отбрасывал каждый пуш.
+
+     Поймать это сверкой с собой было нельзя: ту же ошибку я повторил
+     и в проверке, так что мой шифр исправно расшифровывался моим же ключом.
+     Поймал только эталон из стандарта — там заданы и ключи, и соль,
+     и точный ответ. См. tools/crypto-check.mjs. */
+  const salt = fixed ? fixed.salt : crypto.randomBytes(16);
   const cek = crypto.hkdfSync('sha256', ikm, salt,
-    Buffer.from('Content-Encoding: aes128gcm\0\x01'), 16);
+    Buffer.from('Content-Encoding: aes128gcm\0'), 16);
   const nonce = crypto.hkdfSync('sha256', ikm, salt,
-    Buffer.from('Content-Encoding: nonce\0\x01'), 12);
+    Buffer.from('Content-Encoding: nonce\0'), 12);
 
   /* 0x02 в конце — признак последней записи. Без него телефон прочитает
      сообщение как незаконченное и отбросит — молча.
