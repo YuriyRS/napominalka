@@ -138,7 +138,7 @@ self.addEventListener('push', (e) => {
           чтобы проверять доставку, не заводя дел.
        3. Не пришло ничего — пуш без нагрузки. Тоже проверка: показывает
           время доставки, по нему и меряется задержка. */
-    let title = data?.title || 'Напоминалка';
+    let title = data?.title || 'Домовой';
     let body = data?.body || 'Пуш дошёл в ' + new Date().toLocaleTimeString('ru-RU');
     let tag = 'napominalka-check';
 
