@@ -30,6 +30,11 @@ jobs:
   apk:
     runs-on: ubuntu-latest
 
+    # Право положить сборку в релизы. Без этой строки шаг выкладки
+    # упрётся в запрет — по умолчанию у сборочной машины прав на запись нет.
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -79,8 +84,10 @@ jobs:
       - name: Переименовать
         run: |
           mkdir -p out
-          cp android/app/build/outputs/apk/debug/app-debug.apk \
-             "out/domovoy-${GITHUB_SHA::7}.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "out/domovoy-${GITHUB_SHA::7}.apk"
+          # Имя для ссылки с телефона — постоянное. Иначе адрес менялся бы
+          # на каждой сборке, а его придётся набирать руками.
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/domovoy.apk
           ls -lh out/
 
       - uses: actions/upload-artifact@v4
@@ -88,3 +95,26 @@ jobs:
           name: domovoy-apk
           path: out/*.apk
           retention-days: 30
+
+      # Отдельно — релиз со свежей сборкой.
+      #
+      # Файлы из «артефактов» GitHub отдаёт только вошедшим в аккаунт,
+      # а на телефоне в него никто входить не станет. Релизы же скачиваются
+      # кем угодно, и адрес у них постоянный:
+      #   https://github.com/YuriyRS/napominalka/releases/download/apk/domovoy.apk
+      # Именно эту ссылку и надо открывать на телефоне.
+      #
+      # Релиз один и тот же: старый сносим, новый кладём на его место.
+      # Иначе их накопились бы сотни, и качать всегда пришлось бы искать.
+      - name: Выложить ссылку для телефона
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete apk --yes --cleanup-tag 2>/dev/null || true
+          gh release create apk out/domovoy.apk \
+            --title "Домовой — свежая сборка" \
+            --notes "Собрано из коммита ${GITHUB_SHA::7}.
+
+          Это отладочная сборка: она не подписана для магазина, Android
+          спросит разрешение на установку из неизвестного источника.
+          Напоминания появятся в следующей сборке."
