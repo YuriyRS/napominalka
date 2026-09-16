@@ -1,0 +1,29 @@
+<resources>
+    <!-- Строка виджета: время слева, дело справа. Отдельным стилем,
+         а не повтором в разметке: строк четыре, и поправить отступ
+         в четырёх местах — верный способ забыть одно. -->
+    <style name="DomovoyWidgetRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingTop">6dp</item>
+    </style>
+
+    <style name="DomovoyWidgetTime">
+        <item name="android:layout_width">46dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">@color/domovoy_widget_muted</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <style name="DomovoyWidgetTitle">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:textColor">@color/domovoy_widget_ink</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+</resources>

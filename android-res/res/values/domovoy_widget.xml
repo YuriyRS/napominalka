@@ -1,0 +1,16 @@
+<resources>
+    <!-- Цвета и подписи виджета лежат отдельным файлом со своим именем
+         не для красоты: values/colors.xml и values/strings.xml в проекте
+         уже есть, их положил Capacitor, и перезапись стёрла бы чужие
+         строки молча. Отдельное имя файла в той же папке ничего не ломает:
+         для системы это просто ещё один набор ресурсов. -->
+    <color name="domovoy_widget_bg">#F7F5F1</color>
+    <color name="domovoy_widget_ink">#1A1A1C</color>
+    <color name="domovoy_widget_muted">#6F6D65</color>
+    <color name="domovoy_widget_done">#9A9890</color>
+
+    <string name="domovoy_widget_desc">Дела на сегодня</string>
+    <string name="domovoy_widget_label">Домовой</string>
+    <string name="domovoy_widget_empty">На сегодня дел нет</string>
+    <string name="domovoy_widget_done_all">На сегодня всё сделано</string>
+</resources>

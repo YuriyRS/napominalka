@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Описание виджета: что показать в списке выбора и как часто обновлять.
+
+     updatePeriodMillis — раз в полчаса. Это не «как часто меняются дела»
+     (они меняются, когда человек их меняет, и тогда приложение обновляет
+     виджет само), а страховка: если приложение неделю не открывали,
+     виджет всё равно перерисуется и покажет дела того дня, который
+     наступил, — список-то у него на неделю вперёд. Меньше получаса
+     система не разрешает. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="70dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/domovoy_widget"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/domovoy_widget_desc" />

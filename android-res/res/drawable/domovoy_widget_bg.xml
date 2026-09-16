@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Подложка виджета: скруглённый прямоугольник во всю плитку.
+     Скругление своё, а не системное: системное у каждой оболочки разное,
+     и на части телефонов виджет оказался бы вовсе без углов. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/domovoy_widget_bg" />
+    <corners android:radius="22dp" />
+</shape>

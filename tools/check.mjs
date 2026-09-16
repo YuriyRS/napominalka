@@ -455,7 +455,8 @@ say('звук: в браузере скрыт', await b.evalIn(`JSON.stringify({
   подписи: [...document.querySelectorAll('[data-sound-set]')].map((x) => x.textContent).join('/'),
   кнопка_проверки: !!document.getElementById('sound-test'),
   // про экономию заряда в браузере речи нет: экономить тут нечего
-  про_заряд: document.getElementById('battery-row')?.hidden,
+  про_заряд: document.getElementById("battery-row")?.hidden,
+  про_виджет: document.getElementById("widget-row")?.hidden,
 })`));
 
 await b.evalIn(`document.querySelector('[data-act="close"]').click()`);

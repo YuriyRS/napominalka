@@ -33,16 +33,16 @@ import { LocalNotifications } from '@capacitor/local-notifications';
    иначе пришлось бы разносить «выбрал файл» и «файл поставился» по двум
    разным местам, и отмена выбора осталась бы без ответа вовсе. */
 
-const soundBridge = () => window.DomovoyNative || null;
+const hostBridge = () => window.DomovoyNative || null;
 
 /** Есть ли вообще чем выбирать. В браузере моста нет и быть не может. */
 export function canPickSound() {
-  return Boolean(soundBridge()?.pickSound);
+  return Boolean(hostBridge()?.pickSound);
 }
 
 export function pickSound({ timeout = 120_000 } = {}) {
   return new Promise((resolve) => {
-    const bridge = soundBridge();
+    const bridge = hostBridge();
     if (!bridge?.pickSound) {
       resolve({ ok: false, error: 'выбор файла здесь недоступен' });
       return;
@@ -72,7 +72,7 @@ export function pickSound({ timeout = 120_000 } = {}) {
 
 /** Забыть свою мелодию: снять канал и снести копию файла. */
 export function forgetSound() {
-  try { soundBridge()?.removeSound?.(); } catch { /* снимать нечего */ }
+  try { hostBridge()?.removeSound?.(); } catch { /* снимать нечего */ }
 }
 
 /** Экономит ли телефон на нас.
@@ -82,7 +82,7 @@ export function forgetSound() {
     висела бы в настройках там, где она ничего не значит. */
 export function batteryExempt() {
   try {
-    const bridge = soundBridge();
+    const bridge = hostBridge();
     if (!bridge?.isBatteryExempt) return true;
     return Boolean(bridge.isBatteryExempt());
   } catch {
@@ -91,7 +91,57 @@ export function batteryExempt() {
 }
 
 export function askBattery() {
-  try { soundBridge()?.askBattery?.(); } catch { /* нечего показать */ }
+  try { hostBridge()?.askBattery?.(); } catch { /* нечего показать */ }
+}
+
+/* ---------- Виджет ----------
+
+   Виджет рисует не приложение, а рабочий стол, и дел он взять ниоткуда
+   не может: они лежат в памяти страницы. Поэтому список уезжает сюда
+   строкой и живёт в настройках телефона, пока его не заменят.
+
+   Список идёт на неделю вперёд, а не на сегодня: виджет сам выбирает
+   сегодняшний день, и остаётся прав даже через три дня после того,
+   как приложение открывали в последний раз. Считать «сегодня» на
+   стороне страницы было бы ошибкой — страница спит, а день наступает. */
+
+export function setWidget(json) {
+  try { hostBridge()?.setWidget?.(json); } catch { /* виджета нет — и ладно */ }
+}
+
+export function hasWidget() {
+  try { return Boolean(hostBridge()?.hasWidget?.()); } catch { return false; }
+}
+
+/** Позвать систему поставить виджет. Ответ придёт в window.__domovoyPin:
+    не всякая оболочка это умеет, и человеку надо сказать, получилось
+    или звать ставить руками. */
+export function pinWidget({ timeout = 20_000 } = {}) {
+  return new Promise((resolve) => {
+    const bridge = hostBridge();
+    if (!bridge?.pinWidget) {
+      resolve({ ok: false, error: 'виджет здесь недоступен' });
+      return;
+    }
+    const timer = setTimeout(() => {
+      delete window.__domovoyPin;
+      resolve({ ok: false, error: 'система не ответила' });
+    }, timeout);
+
+    window.__domovoyPin = (result) => {
+      clearTimeout(timer);
+      delete window.__domovoyPin;
+      resolve(result || { ok: false, error: 'пустой ответ' });
+    };
+
+    try {
+      bridge.pinWidget();
+    } catch (e) {
+      clearTimeout(timer);
+      delete window.__domovoyPin;
+      resolve({ ok: false, error: String(e?.message || e) });
+    }
+  });
 }
 
 /* Два канала, а не один с настройкой. Android запрещает менять звук

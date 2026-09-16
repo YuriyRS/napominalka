@@ -1319,6 +1319,7 @@ function syncSettings() {
   // не должно задерживать соседей.
   syncInstallRow();
   syncSoundRow();
+  syncWidgetRow();
   syncBatteryRow();
   syncRemindersRow();
 }
@@ -1348,7 +1349,11 @@ document.getElementById('battery-btn')?.addEventListener('click', async () => {
    ответил на системный вопрос. Отдельного события «вернулся из настроек»
    у страницы нет, а видимость есть, и её достаточно. */
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') syncBatteryRow();
+  if (document.visibilityState !== 'visible') return;
+  syncBatteryRow();
+  // Виджет могли поставить или убрать, пока нас не было, — и поставить
+  // его можно было только что, ответом на системный вопрос.
+  syncWidgetRow();
 });
 
 /* Звук напоминания — только в приложении. В браузере уведомление играет
@@ -1527,6 +1532,84 @@ async function onAlarmAction({ action, id, kind }) {
     await refresh();
   }
 }
+
+/* ---------- Виджет ----------
+
+   Плитка на рабочем столе с делами на сегодня. Приложение её не рисует —
+   рисует рабочий стол, — и взять дела ему неоткуда: они лежат в памяти
+   страницы. Поэтому при каждом изменении список уезжает в Java строкой.
+
+   Отдаём неделю вперёд, а не сегодняшний день. Разница не в запасе,
+   а в том, кто считает: «сегодня» наступает и без нас, и если считать
+   его здесь, виджет к утру покажет вчерашний день и будет уверен,
+   что прав. */
+
+const WIDGET_HORIZON_MS = 7 * 24 * 3600_000;
+
+function widgetRows() {
+  const now = Date.now();
+  // Немного назад — чтобы сегодняшние уже прошедшие дела тоже попали:
+  // виджет по ним считает, всё ли на сегодня сделано.
+  const from = startOfToday();
+  return state.tasks
+    .filter((t) => shown(t) && t.at >= from && t.at < now + WIDGET_HORIZON_MS)
+    .sort((a, b) => a.at - b.at)
+    .slice(0, 120)
+    .map((t) => ({ at: t.at, title: t.title, done: t.done ? 1 : 0 }));
+}
+
+async function syncWidget() {
+  const n = await nativeReady();
+  if (!n) return;
+  n.setWidget(JSON.stringify({ rows: widgetRows() }));
+}
+
+/** Строка про виджет в настройках.
+
+    Ставить его приложение не может и не должно — место на рабочем столе
+    принадлежит человеку. Но объяснить, как поставить и как убрать, обязано:
+    виджет, о котором никто не знает, не существует. */
+const widgetRow = document.getElementById('widget-row');
+const widgetBtn = document.getElementById('widget-btn');
+const widgetHint = document.getElementById('widget-hint');
+
+async function syncWidgetRow() {
+  if (!widgetRow) return;
+  const n = await nativeReady();
+  widgetRow.hidden = !n;
+  if (!n) return;
+
+  const placed = n.hasWidget();
+  widgetBtn.textContent = placed ? 'Убрать' : 'Поставить';
+  widgetHint.textContent = placed
+    ? 'Если он не нужен: долгое нажатие на плитку → «Убрать с экрана»'
+    : 'Дела на сегодня прямо на рабочем столе';
+}
+
+widgetBtn?.addEventListener('click', async () => {
+  const n = await nativeReady();
+  if (!n) return;
+
+  if (n.hasWidget()) {
+    /* Убирать виджет приложение не умеет — и это не наша недоработка:
+       место на рабочем столе принадлежит человеку, и распоряжаться им
+       может только он сам. Говорим как, вместо того чтобы делать вид,
+       что кнопка что-то делает. */
+    widgetHint.textContent = 'Долгое нажатие на плитку → «Убрать с экрана»';
+    return;
+  }
+
+  widgetHint.textContent = 'Спрашиваю у системы…';
+  const res = await n.pinWidget();
+  if (!res.ok) {
+    widgetHint.textContent =
+      `Поставить вручную: долгое нажатие на пустом месте экрана → «Виджеты» → Домовой`;
+    return;
+  }
+  // Система показала свой вопрос; ответ придёт не сразу, а когда человек
+  // на него ответит. Проверяем при возвращении в приложение.
+  widgetHint.textContent = 'Подтвердите на экране телефона';
+});
 
 /** Пересчитать будильники.
 
@@ -2312,6 +2395,9 @@ async function refresh() {
      без единого признака, что что-то не так. Стоит это одного обращения
      к системе, то есть меньше, чем занимает нажатие кнопки. */
   await syncAlarms();
+  // Виджет рисует чужой процесс, и сам он о правках не узнает —
+  // список надо отдавать ему заново при каждом изменении.
+  syncWidget();
 }
 
 document.addEventListener('click', async (e) => {

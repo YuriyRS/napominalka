@@ -2,6 +2,8 @@ package ru.domovoy.app;
 
 import android.app.Activity;
 import android.app.NotificationChannel;
+import android.appwidget.AppWidgetManager;
+import android.content.ComponentName;
 import android.app.NotificationManager;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -49,6 +51,15 @@ public class DomovoyNative {
     private static final String KEY_URI = "sound_uri";
     private static final String KEY_CHANNEL = "sound_channel";
 
+    /** Список дел для виджета. Лежит рядом со звуком, в тех же настройках:
+        заводить для него второй файл значило бы держать два хранилища
+        одного приложения и однажды перепутать их. */
+    static final String KEY_WIDGET = "widget_data";
+
+    static SharedPreferences prefs(Context context) {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
     private final Activity activity;
     private final WebView web;
 
@@ -88,6 +99,52 @@ public class DomovoyNative {
             deleteCopy(prefs.getString(KEY_URI, null));
             prefs.edit().remove(KEY_URI).remove(KEY_CHANNEL).apply();
             reply("{\"ok\":true,\"removed\":true}");
+        });
+    }
+
+    /** Отдать виджету список дел.
+
+        Присылается на неделю вперёд, а не на сегодня: виджет сам выберет
+        сегодняшний день, и будет прав даже через три дня после того,
+        как приложение открывали в последний раз. Считать «сегодня»
+        на стороне страницы было бы ошибкой — страница спит, а день
+        наступает. */
+    @JavascriptInterface
+    public void setWidget(String json) {
+        prefs(activity).edit().putString(KEY_WIDGET, json).apply();
+        activity.runOnUiThread(() -> DomovoyWidget.refreshAll(activity));
+    }
+
+    /** Стоит ли виджет на рабочем столе. */
+    @JavascriptInterface
+    public boolean hasWidget() {
+        return DomovoyWidget.isPlaced(activity);
+    }
+
+    /** Позвать систему поставить виджет.
+
+        Программно положить плитку на рабочий стол приложение не может
+        и не должно: место на экране принадлежит человеку. Но попросить
+        можно — система покажет свой вопрос, а человек согласится или нет.
+        Не все оболочки это умеют, поэтому ответ честный: получилось
+        или зови ставить руками. */
+    @JavascriptInterface
+    public void pinWidget() {
+        activity.runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                replyTo("__domovoyPin",
+                    "{\"ok\":false,\"error\":\"на этом Android виджет ставится вручную\"}");
+                return;
+            }
+            AppWidgetManager manager = AppWidgetManager.getInstance(activity);
+            if (!manager.isRequestPinAppWidgetSupported()) {
+                replyTo("__domovoyPin",
+                    "{\"ok\":false,\"error\":\"эта оболочка ставить виджет не умеет\"}");
+                return;
+            }
+            manager.requestPinAppWidget(
+                new ComponentName(activity, DomovoyWidget.class), null, null);
+            replyTo("__domovoyPin", "{\"ok\":true}");
         });
     }
 
@@ -273,9 +330,18 @@ public class DomovoyNative {
     }
 
     /** Ответ странице. Только из потока отрисовки: evaluateJavascript
-        из чужого потока молча ничего не делает. */
+        из чужого потока молча ничего не делает.
+
+        Имя приёмника — параметр, а не константа: у звука и у виджета
+        разные вопросы и разные места, где на них отвечают. Один общий
+        приёмник пришлось бы разбирать по содержимому ответа, и рано
+        или поздно один ответ попал бы не туда. */
     private void reply(String json) {
+        replyTo("__domovoySound", json);
+    }
+
+    private void replyTo(String name, String json) {
         web.post(() -> web.evaluateJavascript(
-            "window.__domovoySound && window.__domovoySound(" + json + ")", null));
+            "window." + name + " && window." + name + "(" + json + ")", null));
     }
 }

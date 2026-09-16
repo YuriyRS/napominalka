@@ -86,9 +86,10 @@ const PERMISSIONS = [
    Capacitor. Разойтись они могут только по недосмотру, и тогда проект
    не соберётся с невнятной ошибкой компилятора — поэтому сверяем сами,
    здесь, и говорим человеческими словами. */
+const appId = JSON.parse(
+  fs.readFileSync(path.join(HERE, '..', 'capacitor.config.json'), 'utf8')).appId;
+
 {
-  const appId = JSON.parse(
-    fs.readFileSync(path.join(HERE, '..', 'capacitor.config.json'), 'utf8')).appId;
   const JAVA = path.join(HERE, '..', 'android-res', 'java');
   const dir = path.join(ANDROID, 'app', 'src', 'main', 'java', ...appId.split('.'));
 
@@ -118,6 +119,25 @@ const PERMISSIONS = [
     fs.copyFileSync(path.join(JAVA, name), path.join(dir, name));
   }
   console.log(`своего кода на Java: ${fs.readdirSync(JAVA).length} файла в ${appId}`);
+
+  /* Разметка и цвета виджета — это ресурсы, и лежат они там же, где
+     ресурсы Capacitor. Имена файлов у нас свои (domovoy_widget*),
+     поэтому ничего чужого не затирается; совпади они — сборка упала бы
+     на двух одинаковых ресурсах, и это лучше, чем тихая подмена. */
+  const RES_SRC = path.join(HERE, '..', 'android-res', 'res');
+  let res = 0;
+  const walk = (from, to) => {
+    for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+      const src = path.join(from, entry.name);
+      const dst = path.join(to, entry.name);
+      if (entry.isDirectory()) { fs.mkdirSync(dst, { recursive: true }); walk(src, dst); continue; }
+      if (fs.existsSync(dst)) throw new Error(`ресурс уже занят: ${dst}`);
+      fs.copyFileSync(src, dst);
+      res++;
+    }
+  };
+  if (fs.existsSync(RES_SRC)) walk(RES_SRC, RES);
+  console.log(`ресурсов виджета: ${res}`);
 }
 
 const manifest = path.join(ANDROID, 'app', 'src', 'main', 'AndroidManifest.xml');
@@ -132,8 +152,34 @@ if (missing.length) {
   const at = xml.indexOf('<application');
   if (at < 0) throw new Error('в манифесте нет <application> — шаблон изменился');
   xml = xml.slice(0, at) + block + '\n\n' + xml.slice(at);
-  fs.writeFileSync(manifest, xml);
 }
+
+/* Приёмник виджета. Система будит его, когда виджет пора перерисовать,
+   и по этому же приёмнику видно, что виджет вообще существует. Без
+   записи в манифесте виджет не появится в списке, и гадать, почему,
+   придётся долго.
+
+   Имя класса — полное, а не с точкой впереди: точка отсчитывается
+   от пакета, а пакет в манифесте теперь не пишут, он задан в сборке. */
+const receiver = `<receiver
+        android:name="${appId}.DomovoyWidget"
+        android:exported="false"
+        android:label="@string/domovoy_widget_label">
+        <intent-filter>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent-filter>
+        <meta-data
+            android:name="android.appwidget.provider"
+            android:resource="@xml/domovoy_widget_info" />
+    </receiver>`;
+
+if (!xml.includes('DomovoyWidget')) {
+  const close = xml.lastIndexOf('</application>');
+  if (close < 0) throw new Error('в манифесте нет </application> — шаблон изменился');
+  xml = xml.slice(0, close) + '    ' + receiver + '\n\n' + xml.slice(close);
+}
+
+fs.writeFileSync(manifest, xml);
 
 console.log(`разрешений в манифесте: ${PERMISSIONS.length}, `
   + `дописано сейчас: ${missing.length}`);

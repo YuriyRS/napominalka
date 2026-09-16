@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Виджет: дела на сегодня.
+
+     Строк ровно четыре, и они лежат в разметке заранее, а не создаются
+     по числу дел. Виджет рисует не приложение, а чужая программа —
+     лаунчер, — и рисует она только то, что описано в этом файле.
+     Пятую строку добавить на лету нельзя, можно лишь спрятать лишние.
+     Поэтому четыре: три строки умещаются на плитке 2×1 почти всегда,
+     четвёртая влезает, если человек растянул виджет повыше. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/domovoy_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/domovoy_widget_bg"
+    android:padding="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="true">
+
+        <TextView
+            android:id="@+id/domovoy_widget_head"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/domovoy_widget_ink"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:text="@string/domovoy_widget_label" />
+
+        <TextView
+            android:id="@+id/domovoy_widget_left"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:textColor="@color/domovoy_widget_muted"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/domovoy_widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="10dp"
+        android:textColor="@color/domovoy_widget_muted"
+        android:textSize="13sp"
+        android:text="@string/domovoy_widget_empty" />
+
+    <!-- Четыре одинаковых строки. Разметка повторяется намеренно: виджет
+         не умеет перебирать список, и «строка» здесь — не элементы
+         списка, а четыре разных места, в которые можно что-то положить. -->
+    <LinearLayout
+        android:id="@+id/domovoy_widget_row1"
+        style="@style/DomovoyWidgetRow">
+        <TextView android:id="@+id/domovoy_widget_time1" style="@style/DomovoyWidgetTime" />
+        <TextView android:id="@+id/domovoy_widget_title1" style="@style/DomovoyWidgetTitle" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/domovoy_widget_row2"
+        style="@style/DomovoyWidgetRow">
+        <TextView android:id="@+id/domovoy_widget_time2" style="@style/DomovoyWidgetTime" />
+        <TextView android:id="@+id/domovoy_widget_title2" style="@style/DomovoyWidgetTitle" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/domovoy_widget_row3"
+        style="@style/DomovoyWidgetRow">
+        <TextView android:id="@+id/domovoy_widget_time3" style="@style/DomovoyWidgetTime" />
+        <TextView android:id="@+id/domovoy_widget_title3" style="@style/DomovoyWidgetTitle" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/domovoy_widget_row4"
+        style="@style/DomovoyWidgetRow">
+        <TextView android:id="@+id/domovoy_widget_time4" style="@style/DomovoyWidgetTime" />
+        <TextView android:id="@+id/domovoy_widget_title4" style="@style/DomovoyWidgetTitle" />
+    </LinearLayout>
+
+</LinearLayout>

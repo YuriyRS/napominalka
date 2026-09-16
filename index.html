@@ -261,6 +261,18 @@
     <button class="btn btn--ghost btn--mini sound__test" type="button" id="sound-test">Проверить</button>
   </div>
 
+  <!-- Виджет. Ставить его приложение не может — место на рабочем столе
+       принадлежит человеку, — но объяснить, как поставить и как убрать,
+       обязано: виджет, о котором никто не знает, не существует.
+       Решает syncWidgetRow() в app.js -->
+  <div class="opt" id="widget-row" hidden>
+    <div>
+      <div class="opt__name">Виджет на рабочий стол</div>
+      <div class="opt__hint" id="widget-hint">Дела на сегодня прямо на рабочем столе</div>
+    </div>
+    <button class="btn btn--ghost btn--mini" type="button" id="widget-btn">Поставить</button>
+  </div>
+
   <!-- Экономия заряда. Строка появляется только тогда, когда телефон
        действительно придерживает наши будильники: показывать её всегда
        значило бы просить разрешение на всякий случай. Решает
