@@ -68,6 +68,52 @@ const PERMISSIONS = [
   'android.permission.RECEIVE_BOOT_COMPLETED',
 ];
 
+/* ---------- Наш код на Java ----------
+
+   Шаблон Capacitor приходит с пустой MainActivity и без единого класса
+   сверх него. Выбор своей мелодии умеет только Android — звук уведомления
+   проигрывает система, и файл обязан лежать там, куда она заглядывает.
+   Значит, нужен свой код, и кладём мы его прямо в собранный проект:
+   android/ не хранится в репозитории, он каждый раз создаётся заново.
+
+   Пакет в наших файлах записан руками, а рядом лежит appId из настроек
+   Capacitor. Разойтись они могут только по недосмотру, и тогда проект
+   не соберётся с невнятной ошибкой компилятора — поэтому сверяем сами,
+   здесь, и говорим человеческими словами. */
+{
+  const appId = JSON.parse(
+    fs.readFileSync(path.join(HERE, '..', 'capacitor.config.json'), 'utf8')).appId;
+  const JAVA = path.join(HERE, '..', 'android-res', 'java');
+  const dir = path.join(ANDROID, 'app', 'src', 'main', 'java', ...appId.split('.'));
+
+  for (const name of fs.readdirSync(JAVA)) {
+    const code = fs.readFileSync(path.join(JAVA, name), 'utf8');
+    const declared = code.match(/^package\s+([\w.]+);/m)?.[1];
+    if (declared !== appId) {
+      throw new Error(`${name}: пакет ${declared}, а приложение ${appId}`);
+    }
+  }
+
+  fs.mkdirSync(dir, { recursive: true });
+
+  /* Что лежало в MainActivity до нас — печатаем. Шаблон может однажды
+     перестать быть пустым, и молча стереть чужую строку было бы худшим
+     из возможных решений: она бы просто исчезла, и никто бы не заметил. */
+  for (const name of ['MainActivity.java', 'MainActivity.kt']) {
+    const old = path.join(dir, name);
+    if (!fs.existsSync(old)) continue;
+    console.log(`--- было в ${name} ---`);
+    console.log(fs.readFileSync(old, 'utf8').trim());
+    console.log('--- конец ---');
+    fs.rmSync(old);   // .kt рядом с нашим .java дал бы два класса с одним именем
+  }
+
+  for (const name of fs.readdirSync(JAVA)) {
+    fs.copyFileSync(path.join(JAVA, name), path.join(dir, name));
+  }
+  console.log(`своего кода на Java: ${fs.readdirSync(JAVA).length} файла в ${appId}`);
+}
+
 const manifest = path.join(ANDROID, 'app', 'src', 'main', 'AndroidManifest.xml');
 let xml = fs.readFileSync(manifest, 'utf8');
 

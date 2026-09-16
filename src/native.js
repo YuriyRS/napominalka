@@ -19,6 +19,62 @@
 
 import { LocalNotifications } from '@capacitor/local-notifications';
 
+/* ---------- Своя мелодия из телефона ----------
+
+   Устроено иначе, чем всё остальное здесь: не через плагин Capacitor,
+   а через мост, который MainActivity вешает на страницу. Причина простая:
+   звук уведомления проигрывает система, и файл обязан лежать в общей
+   медиатеке телефона — значит, нужен код на Java, а он у нас свой,
+   не из пакета. Плагин пришлось бы регистрировать вручную, и порядок
+   регистрации в разных версиях разный; мост через addJavascriptInterface
+   работает одинаково всегда. Подробности — в android-res/java.
+
+   Мост отвечает вызовом window.__domovoySound. Ждём его обещанием:
+   иначе пришлось бы разносить «выбрал файл» и «файл поставился» по двум
+   разным местам, и отмена выбора осталась бы без ответа вовсе. */
+
+const soundBridge = () => window.DomovoyNative || null;
+
+/** Есть ли вообще чем выбирать. В браузере моста нет и быть не может. */
+export function canPickSound() {
+  return Boolean(soundBridge()?.pickSound);
+}
+
+export function pickSound({ timeout = 120_000 } = {}) {
+  return new Promise((resolve) => {
+    const bridge = soundBridge();
+    if (!bridge?.pickSound) {
+      resolve({ ok: false, error: 'выбор файла здесь недоступен' });
+      return;
+    }
+    /* Человек может уйти в другой экран и не вернуться, а обещание
+       без ответа оставило бы приложение ждать вечно. */
+    const timer = setTimeout(() => {
+      delete window.__domovoySound;
+      resolve({ ok: false, error: 'выбор файла не ответил' });
+    }, timeout);
+
+    window.__domovoySound = (result) => {
+      clearTimeout(timer);
+      delete window.__domovoySound;
+      resolve(result || { ok: false, error: 'пустой ответ' });
+    };
+
+    try {
+      bridge.pickSound();
+    } catch (e) {
+      clearTimeout(timer);
+      delete window.__domovoySound;
+      resolve({ ok: false, error: String(e?.message || e) });
+    }
+  });
+}
+
+/** Забыть свою мелодию: снять канал и снести копию файла. */
+export function forgetSound() {
+  try { soundBridge()?.removeSound?.(); } catch { /* снимать нечего */ }
+}
+
 /* Два канала, а не один с настройкой. Android запрещает менять звук
    у существующего канала: человек один раз выбрал — и всё, навсегда.
    Обойти это можно только новым каналом, поэтому их два, по одному
@@ -94,9 +150,27 @@ export async function ask() {
 /** Каналы уведомлений. Звук выбирает человек, и от этого зависит,
     какой канал понадобится; ненужный сносим, чтобы он не висел
     в настройках телефона лишним пунктом. */
-async function ensureChannels(sound) {
+async function dropChannel(id) {
+  try { await LocalNotifications.deleteChannel({ id }); } catch { /* и хорошо */ }
+}
+
+/** Оставить один канал, остальные снести: три строки «Напоминания»
+    в настройках телефона — это три способа запутаться. */
+async function onlyChannel(wanted) {
+  for (const id of [CHANNEL_CHIME, CHANNEL_PLAIN, ...CHANNEL_STALE]) {
+    if (id !== wanted) await dropChannel(id);
+  }
+}
+
+async function ensureChannels(sound, customChannel) {
+  /* Со своей мелодией канал уже завёл мост — в нём записан звук
+     из медиатеки, и пересоздать его здесь нечем. Просто убираем лишние. */
+  if (sound === 'file') {
+    await onlyChannel(customChannel);
+    return;
+  }
+
   const wanted = sound === 'chime' ? CHANNEL_CHIME : CHANNEL_PLAIN;
-  const other = sound === 'chime' ? CHANNEL_PLAIN : CHANNEL_CHIME;
 
   const channel = {
     id: wanted,
@@ -125,9 +199,7 @@ async function ensureChannels(sound) {
   }
 
   await LocalNotifications.createChannel(channel);
-  for (const id of [other, ...CHANNEL_STALE]) {
-    try { await LocalNotifications.deleteChannel({ id }); } catch { /* лишний канал в настройках — не беда */ }
-  }
+  await onlyChannel(wanted);
 }
 
 /** Кнопки под уведомлением.
@@ -165,9 +237,11 @@ export async function prepareActions() {
 /** Показать одно уведомление прямо сейчас — кнопка «Проверить» рядом
     с выбором звука. Без неё выбрать звук невозможно: оба варианта
     выглядят одинаково — одинаково тихо — пока не услышишь. */
-export async function trySound(sound) {
+export async function trySound(sound, customChannel = null) {
   try {
-    await ensureChannels(sound);
+    await ensureChannels(sound, customChannel);
+    const channelId = sound === 'chime' ? CHANNEL_CHIME
+      : sound === 'file' ? customChannel : null;
     await LocalNotifications.schedule({
       notifications: [{
         id: alarmId('проверка-звука'),
@@ -175,7 +249,7 @@ export async function trySound(sound) {
         body: 'Это проверка. Настоящее придёт в назначенную минуту',
         schedule: { at: new Date(Date.now() + 1500), allowWhileIdle: true },
         smallIcon: 'ic_stat_domovoy',
-        ...(sound === 'chime' ? { channelId: CHANNEL_CHIME } : {}),
+        ...(channelId ? { channelId } : {}),
       }],
     });
     return { ok: true };
@@ -194,15 +268,16 @@ export async function trySound(sound) {
 
     Ошибка здесь не должна ронять приложение: без напоминаний оно
     остаётся рабочим, и молчаливо сломанным ему быть незачем. */
-export async function apply({ items, sound }) {
+export async function apply({ items, sound, customChannel = null }) {
   try {
     /* Канал — единственное место, где что-то может не получиться:
        например, звук не найдётся. Тогда остаёмся на системном канале:
        напоминание без нашего звука лучше, чем никакого напоминания. */
     let channelId;
     try {
-      await ensureChannels(sound);
+      await ensureChannels(sound, customChannel);
       if (sound === 'chime') channelId = CHANNEL_CHIME;
+      else if (sound === 'file') channelId = customChannel || undefined;
     } catch { /* системный канал подставит сам плагин */ }
 
     const { notifications: pending } = await LocalNotifications.getPending();

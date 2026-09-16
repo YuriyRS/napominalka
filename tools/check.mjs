@@ -450,6 +450,9 @@ await b.shot('установка-не-умеет');
 say('звук: в браузере скрыт', await b.evalIn(`JSON.stringify({
   есть: !!document.getElementById('sound-row'),
   скрыта: document.getElementById('sound-row')?.hidden,
+  // три варианта: системный, наш колокольчик и своя мелодия из телефона
+  вариантов: document.querySelectorAll('[data-sound-set]').length,
+  подписи: [...document.querySelectorAll('[data-sound-set]')].map((x) => x.textContent).join('/'),
   кнопка_проверки: !!document.getElementById('sound-test'),
 })`));
 

@@ -108,6 +108,12 @@ const state = {
   // эти поля не значат ничего — там напоминает сервер, и звук системный.
   remindersOn: localStorage.getItem('remindersOn') !== '0',
   alarmSound: localStorage.getItem('alarmSound') || 'system',
+  // своя мелодия: { uri, name, channelId }. Нужна, чтобы после перезапуска
+  // знать, каким каналом ставить будильники и что написано в настройках.
+  alarmFile: (() => {
+    try { return JSON.parse(localStorage.getItem('alarmFile')) || null; }
+    catch { return null; }
+  })(),
   subs: [],           // подписки, см. renderSubs
   sheetSub: null,     // id подписки, для которой открыт лист действий
   editingSub: null,   // id подписки, которую правят в форме
@@ -1322,7 +1328,7 @@ function syncSettings() {
    обещать то, чего оно не делает. */
 const SOUND_HINT = {
   system: 'Системный, как у остальных уведомлений',
-  chime:  'Свой: короткий колокольчик, тише системного',
+  chime:  'Короткий колокольчик, тише системного',
 };
 
 const soundRow  = document.getElementById('sound-row');
@@ -1335,7 +1341,11 @@ function syncSoundRow() {
   for (const b of soundRow.querySelectorAll('[data-sound-set]')) {
     b.setAttribute('aria-pressed', String(b.dataset.soundSet === state.alarmSound));
   }
-  soundHint.textContent = SOUND_HINT[state.alarmSound] || SOUND_HINT.system;
+  /* Подпись у выбранного звука — имя файла, а не слово «свой»: человек
+     выбирал конкретную мелодию и должен видеть, какую именно. */
+  soundHint.textContent = state.alarmSound === 'file' && state.alarmFile
+    ? `Мелодия: ${state.alarmFile.name}`
+    : SOUND_HINT[state.alarmSound] || SOUND_HINT.system;
 }
 
 /* ---------- Напоминания в приложении ----------
@@ -1504,7 +1514,11 @@ async function syncAlarms() {
   if (sign !== alarmsApplied) {
     alarmsApplied = sign;
     if (!items.length) await n.cancelAll();
-    else await n.apply({ items, sound: state.alarmSound });
+    else await n.apply({
+      items,
+      sound: state.alarmSound,
+      customChannel: state.alarmFile?.channelId || null,
+    });
   }
 
   /* Строка в настройках показывает то, что стоит у системы, — значит,
@@ -2484,17 +2498,65 @@ for (const b of document.querySelectorAll('[data-accent-set]')) {
   });
 }
 
+/** Выбрать звук. Своя мелодия идёт другим путём — её сначала надо
+    заполучить, а это поход в системный выбор файла и обратно. */
+async function setSound(next) {
+  if (next === 'file') { await chooseSound(); return; }
+
+  /* Уходим со своей мелодии — снимаем её канал и сносим копию файла
+     из медиатеки. Оставить её значило бы копить в «Звонках» чужие
+     мелодии, о которых человек давно забыл. */
+  if (state.alarmSound === 'file') {
+    (await nativeReady())?.forgetSound?.();
+    state.alarmFile = null;
+    localStorage.removeItem('alarmFile');
+  }
+
+  state.alarmSound = next;
+  localStorage.setItem('alarmSound', next);
+  /* Звук у уже созданного канала Android менять не даёт, поэтому смена
+     звука — это новый канал, то есть полный пересчёт будильников.
+     Подпись сбрасываем: без этого syncAlarms решил бы, что набор тот же. */
+  alarmsApplied = '';
+  syncSettings();
+  await syncAlarms();
+}
+
+/** Своя мелодия. Файл кладёт мост на Java: звук уведомления играет
+    система, и он обязан лежать в общей медиатеке телефона — в личную
+    папку приложения она не заглядывает. */
+async function chooseSound() {
+  const hint = document.getElementById('sound-hint');
+  const n = await nativeReady();
+  if (!n) return;
+
+  if (!n.canPickSound()) {
+    hint.textContent = 'Выбор файла доступен только в приложении';
+    return;
+  }
+
+  hint.textContent = 'Открываю выбор файла…';
+  const res = await n.pickSound();
+
+  if (!res.ok) {
+    /* Отмена и поломка — разные вещи, и говорить о них надо разное:
+       за отмену человек себя виноватым считать не должен. */
+    hint.textContent = res.cancelled ? 'Файл не выбран'
+      : `Не получилось: ${res.error}`;
+    return;
+  }
+
+  state.alarmFile = { uri: res.uri, name: res.name, channelId: res.channelId };
+  localStorage.setItem('alarmFile', JSON.stringify(state.alarmFile));
+  state.alarmSound = 'file';
+  localStorage.setItem('alarmSound', 'file');
+  alarmsApplied = '';
+  syncSettings();
+  await syncAlarms();
+}
+
 for (const b of document.querySelectorAll('[data-sound-set]')) {
-  b.addEventListener('click', async () => {
-    state.alarmSound = b.dataset.soundSet;
-    localStorage.setItem('alarmSound', state.alarmSound);
-    /* Звук у уже созданного канала Android менять не даёт, поэтому
-       смена звука — это новый канал, то есть полный пересчёт будильников.
-       Подпись сбрасываем: без этого syncAlarms решил бы, что набор тот же. */
-    alarmsApplied = '';
-    syncSettings();
-    await syncAlarms();
-  });
+  b.addEventListener('click', () => setSound(b.dataset.soundSet));
 }
 
 /* «Проверить» вместо догадок. Выбрать звук, не услышав его, нельзя:
@@ -2507,7 +2569,7 @@ document.getElementById('sound-test')?.addEventListener('click', async () => {
   const hint = document.getElementById('sound-hint');
   const was = hint.textContent;
   hint.textContent = 'Сейчас придёт проверочное уведомление…';
-  const res = await n.trySound(state.alarmSound);
+  const res = await n.trySound(state.alarmSound, state.alarmFile?.channelId || null);
   setTimeout(() => { hint.textContent = was; }, 4000);
   if (!res.ok) hint.textContent = 'Не получилось показать: ' + res.error;
 });
@@ -2587,6 +2649,16 @@ document.addEventListener('input', (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') dismiss(); });
 
 /* ---------- Старт ---------- */
+
+/* Своя мелодия выбрана, а записи о ней нет — так бывает после чистки
+   хранилища телефона. Оставить выбор как есть значило бы обещать
+   мелодию, которой приложение не знает: будильник ушёл бы на системный
+   канал, а в настройках было бы написано «Свой файл». Возвращаем
+   колокольчик — он вшит в приложение и не может пропасть. */
+if (state.alarmSound === 'file' && !state.alarmFile) {
+  state.alarmSound = 'chime';
+  localStorage.setItem('alarmSound', 'chime');
+}
 
 applyAppearance();
 

@@ -248,9 +248,13 @@
       <div class="opt__name">Звук напоминания</div>
       <div class="opt__hint" id="sound-hint">Системный, как у остальных уведомлений</div>
     </div>
+    <!-- Третий вариант — своя мелодия из телефона. Нажатие на него
+         открывает системный выбор файла, а не переключает выбор:
+         выбрать мелодию, которую ещё не выбрал, нельзя. -->
     <div class="seg" role="group" aria-label="Звук напоминания">
       <button type="button" data-sound-set="system" aria-pressed="true">Система</button>
-      <button type="button" data-sound-set="chime"  aria-pressed="false">Свой</button>
+      <button type="button" data-sound-set="chime"  aria-pressed="false">Колокольчик</button>
+      <button type="button" data-sound-set="file"   aria-pressed="false">Свой файл</button>
     </div>
     <!-- Звук нельзя выбрать, не услышав: оба варианта одинаково тихи,
          пока не прозвучат. Кнопка ставит одно проверочное уведомление. -->
