@@ -165,6 +165,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Прежнюю сборку не выбрасываем, а откладываем в запасной релиз.
+          #
+          # Она и есть та, о которой известно, что работает: свежую человек
+          # ещё не пробовал. Если новая окажется хуже, вернуться можно
+          # сразу — не дожидаясь, пока я пересоберу старый коммит.
+          #
+          # Хранится ровно одна прежняя: десяток сборок по четыре мегабайта
+          # ничего не добавят к выбору, а разбираться в них придётся дольше.
+          if gh release view apk >/dev/null 2>&1; then
+            mkdir -p prev
+            gh release download apk -p domovoy.apk -D prev --clobber
+            gh release delete apk-prev --yes --cleanup-tag 2>/dev/null || true
+            gh release create apk-prev prev/domovoy.apk \
+              --title "Домовой — прежняя сборка" \
+              --notes "Сборка, которая была до нынешней. Ставится поверх,
+          задачи сохраняются.
+
+          https://github.com/YuriyRS/napominalka/releases/download/apk-prev/domovoy.apk"
+          fi
+
           gh release delete apk --yes --cleanup-tag 2>/dev/null || true
           gh release create apk out/domovoy.apk \
             --title "Домовой — свежая сборка" \
