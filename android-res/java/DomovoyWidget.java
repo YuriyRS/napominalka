@@ -63,7 +63,27 @@ public class DomovoyWidget extends AppWidgetProvider {
             .getAppWidgetIds(new ComponentName(context, DomovoyWidget.class));
     }
 
+    /* Отрисовку заворачиваем в try целиком, и это не перестраховка.
+
+       Виджет рисует не приложение, а рабочий стол. Если мы бросим
+       исключение у него на глазах, он просто ничего не покажет — и это
+       неотличимо от «виджет не поставился». Человек будет искать плитку,
+       которой нет, хотя на самом деле она есть и молчит. Лучше показать
+       честную надпись. */
     private static RemoteViews build(Context context) {
+        try {
+            return render(context);
+        } catch (Throwable e) {
+            RemoteViews view = new RemoteViews(context.getPackageName(), R.layout.domovoy_widget);
+            try {
+                view.setViewVisibility(R.id.domovoy_widget_empty, View.VISIBLE);
+                view.setTextViewText(R.id.domovoy_widget_empty, "Откройте приложение");
+            } catch (Throwable ignored) { /* и это не вышло — пустая плитка */ }
+            return view;
+        }
+    }
+
+    private static RemoteViews render(Context context) {
         RemoteViews view = new RemoteViews(context.getPackageName(), R.layout.domovoy_widget);
 
         /* Нажатие в любом месте открывает приложение. Флаг IMMUTABLE
