@@ -101,6 +101,7 @@ const state = {
   installOffered: false, // браузер вообще предлагал установку — см. syncInstallRow
   monthCursor: null,  // первое число показываемого месяца, см. renderMonth
   monthDay: null,     // полночь выбранного дня, null — показываем календарь
+  query: '',          // строка поиска в «Месяце», см. paintSearch
   yearCursor: null,   // номер показываемого года, см. renderYear
   currency: localStorage.getItem('currency') || 'rub',  // для сумм в подписках
   // Напоминания в приложении: включены ли и каким звуком. В браузере
@@ -259,7 +260,10 @@ const gapLabel = (ms) => {
 
    late — дело с прошлого дня: вместо часов пишем «вчера, 15:00», иначе
    непонятно, откуда оно взялось. */
-function taskRow(t, { flashId = null, extra = '', late = false } = {}) {
+function taskRow(t, { flashId = null, extra = '', late = false, when = null } = {}) {
+  /* when — своя подпись времени вместо обычных часов. Нужна в поиске:
+     там рядом стоят дела из разных месяцев, и «15:00» без числа
+     не отвечает на вопрос, ради которого искали. */
   return `
     <li class="task ${t.done ? 'task--done' : ''} ${t.id === flashId ? 'task--flash' : ''} ${extra}" data-id="${esc(t.id)}">
       <button class="task__check" data-act="toggle" aria-pressed="${t.done}"
@@ -267,7 +271,7 @@ function taskRow(t, { flashId = null, extra = '', late = false } = {}) {
         ${svg(ICON.check)}
       </button>
       <div class="task__body">
-        <div class="task__time">${late ? esc(whenLabel(t.at)) : hhmm(t.at)}${isRepeat(t)
+        <div class="task__time">${when ? esc(when) : late ? esc(whenLabel(t.at)) : hhmm(t.at)}${isRepeat(t)
           ? `<svg class="task__repeat" viewBox="0 0 24 24" aria-hidden="true">${ICON.repeat}</svg>`
             + '<span class="visually-hidden">, повторяется</span>' : ''}</div>
         <div class="task__title">${esc(t.title)}</div>
@@ -483,7 +487,18 @@ function renderMonth(f) {
 
   root.innerHTML = `
     ${topBar()}
-    <div class="cal${f}">
+    <!-- Поиск стоит здесь, а не на «Сегодня»: там лента дел, и строка
+         поиска отняла бы верх у того, ради чего экран существует.
+         А «Месяц» без неё — просто календарь, по которому нечего
+         вспомнить; теперь по нему можно искать «когда я был у врача». -->
+    <div class="search">
+      <svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><path d="M16.2 16.2 21 21"/></svg>
+      <input class="search__input" id="month-search" type="search" enterkeyhint="search"
+             placeholder="Поиск по делам" aria-label="Поиск по делам"
+             value="${esc(state.query)}">
+    </div>
+    <div class="cal${f}" id="month-cal">
       <div class="cal__head">
         <button class="icon-btn" data-act="month-prev" aria-label="Предыдущий месяц">${svg(ICON.chevL)}</button>
         <h2 class="cal__title">${esc(cursor.toLocaleDateString('ru-RU', { month: 'long' }))} ${year}</h2>
@@ -492,7 +507,72 @@ function renderMonth(f) {
       <div class="cal__week" aria-hidden="true">${
         WEEKDAYS.map((w) => `<span>${w}</span>`).join('')}</div>
       <div class="cal__grid">${cells}</div>
-    </div>`;
+    </div>
+    <div id="month-found" hidden></div>`;
+
+  // Разметку только что переписали — значит, список найденного надо
+  // наполнить заново, иначе после смены месяца он окажется пустым.
+  paintSearch();
+}
+
+/** Найденные дела.
+
+    Ищем и в названии, и в заметке: «парикмахер» человек мог написать
+    в название, а «стрижка» — в заметку, и знать заранее, куда он это
+    записал, он не обязан. Голосовые заметки не ищем — их пришлось бы
+    слушать, а не читать.
+
+    Свежие сверху: вопрос, ради которого ищут, — «когда это было»,
+    и последний раз интереснее первого. Сделанные и просроченные
+    показываем наравне с предстоящими: история тут и есть ответ. */
+function searchTasks(q) {
+  const needle = q.trim().toLowerCase();
+  return state.tasks
+    .filter((t) => shown(t) && `${t.title} ${t.note || ''}`.toLowerCase().includes(needle))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 40);
+}
+
+/** Подпись времени в находке: «3 сентября, 15:00». Год дописываем только
+    чужой — в своих делах он ничего не сообщает. */
+function foundWhen(ms) {
+  const d = new Date(ms);
+  const opts = { day: 'numeric', month: 'long' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return `${d.toLocaleDateString('ru-RU', opts)}, ${hhmm(ms)}`;
+}
+
+/** Наполняет список найденного и убирает календарь, пока идёт поиск.
+
+    Отдельной функцией, а не через render(), намеренно: render() переписал
+    бы разметку целиком вместе со строкой ввода — и поле потеряло бы
+    и текст, и фокус прямо посреди набора. Здесь перерисовывается только
+    то, что под строкой. */
+function paintSearch() {
+  const box = document.getElementById('month-found');
+  const cal = document.getElementById('month-cal');
+  if (!box) return;
+
+  const q = state.query.trim();
+  // Одна буква — это ещё не поиск, а набор; искать по ней незачем,
+  // а список под ней прыгал бы на каждое нажатие.
+  const on = q.length >= 2;
+  if (cal) cal.hidden = on;
+  box.hidden = !on;
+  if (!on) { box.innerHTML = ''; return; }
+
+  const hits = searchTasks(q);
+  if (!hits.length) {
+    box.innerHTML = `<div class="found__head">Ничего не нашлось</div>
+      <div class="found__empty">Ищем по названию и заметке. Голосовые записи не ищем.</div>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="found__head">${hits.length === 40 ? 'Первые 40' : hits.length}
+      ${plural(hits.length, 'дело', 'дела', 'дел')}</div>
+    <div class="list list--done"><ul class="timeline timeline--flat">${
+      hits.map((t) => taskRow(t, { when: foundWhen(t.at) })).join('')}</ul></div>`;
 }
 
 /** Полночь первого числа того месяца, в который попадает дата. */
@@ -1161,6 +1241,7 @@ function openAdd(dayMs = null) {
   form.reset();
   form.elements.date.value = dateValue(dayMs ?? Date.now());
   form.elements.time.value = defaultTime();
+  form.elements.before.value = '';   // второе уведомление — по умолчанию выключено
   setWeekdays([]);            // чипсы — кнопки, form.reset() их не трогает
   syncRepeatFields();
   clearVoice();
@@ -1180,6 +1261,9 @@ function openEdit(id) {
   // на своём дне, а не прыгает на сегодня — без отдельной охраны
   form.elements.date.value = dateValue(t.at);
   form.elements.time.value = hhmm(t.at);
+  // у дел, заведённых до появления поля, его нет — и это значит «только
+  // в назначенный час», а не «сбросить»
+  form.elements.before.value = t.before ? String(t.before) : '';
   repeatSelect.value = t.repeat ? t.repeat.kind : '';
   setWeekdays(t.repeat && t.repeat.days ? t.repeat.days : []);
   syncRepeatFields();
@@ -1301,8 +1385,29 @@ function alarmItems() {
   const items = [];
 
   for (const t of state.tasks) {
-    if (t.done || t.skipped || !(t.at > now)) continue;
-    items.push({ id: t.id, at: t.at, kind: 'task', title: t.title, body: noteBody(t.note) });
+    if (t.done || t.skipped) continue;
+
+    /* Дополнительное уведомление раньше срока. Своё время — значит и свой
+       будильник: у одного дела их теперь может быть два, и опознавать их
+       надо порознь, иначе второе затрёт первое. Отсюда key: он идёт
+       в номер будильника, тогда как id остаётся делом, за которое
+       хватаются кнопки «Готово» и «Позже».
+
+       Раннее уведомление пропускаем, если его время уже прошло: дело,
+       заведённое в 09:50 на 10:00 с напоминанием «за час», должно
+       напомнить в десять, а не выстрелить сейчас же. */
+    const early = t.before ? t.at - t.before * 60_000 : null;
+    if (early && early > now) {
+      items.push({
+        key: t.id + '~рано', id: t.id, at: early, kind: 'task',
+        title: t.title,
+        body: earlyBody(t.before, t.note),
+      });
+    }
+
+    if (t.at > now) {
+      items.push({ key: t.id, id: t.id, at: t.at, kind: 'task', title: t.title, body: noteBody(t.note) });
+    }
   }
 
   /* Подписки напоминают о себе сами. Раньше напоминать им было нечего:
@@ -1311,7 +1416,7 @@ function alarmItems() {
   for (const s of state.subs) {
     if (s.state === 'off' || !(s.nextAt > now)) continue;
     items.push({
-      id: s.id, at: s.nextAt, kind: 'sub',
+      key: s.id, id: s.id, at: s.nextAt, kind: 'sub',
       title: s.title,
       body: `${money(s.amount)} — списание по подписке`,
     });
@@ -1319,6 +1424,26 @@ function alarmItems() {
 
   // Ближайшие первыми: дальше native.js обрежет список по длине.
   return items.sort((a, b) => a.at - b.at);
+}
+
+/** Через сколько напомнить — словами. Число минут человек выбирает
+    из списка, но показывает его приложение, и «Через 60 минут» вместо
+    «Через час» выглядело бы машинным переводом. */
+function earlyLabel(min) {
+  if (min < 60) return `Через ${min} ${plural(min, 'минуту', 'минуты', 'минут')}`;
+  const h = Math.round(min / 60);
+  if (h < 24) return h === 1 ? 'Через час' : `Через ${h} ${plural(h, 'час', 'часа', 'часов')}`;
+  const d = Math.round(min / 1440);
+  return d === 1 ? 'Завтра' : `Через ${d} ${plural(d, 'день', 'дня', 'дней')}`;
+}
+
+/** Строка раннего уведомления. Кроме срока — заметка, если она есть:
+    «Через час — купить билеты» полезнее, чем одно «Через час». */
+function earlyBody(min, note) {
+  const s = (note || '').trim();
+  const label = earlyLabel(min);
+  if (!s) return label;
+  return `${label} — ${s.length > 70 ? s.slice(0, 69).trimEnd() + '…' : s}`;
 }
 
 /** Строка под названием. Заметка, если она есть: без неё напоминание
@@ -1375,7 +1500,7 @@ async function syncAlarms() {
   if (!n) return;
 
   const items = state.remindersOn ? alarmItems() : [];
-  const sign = state.alarmSound + '|' + items.map((i) => i.id + '@' + i.at).join(',');
+  const sign = state.alarmSound + '|' + items.map((i) => i.key + '@' + i.at).join(',');
   if (sign !== alarmsApplied) {
     alarmsApplied = sign;
     if (!items.length) await n.cancelAll();
@@ -1819,7 +1944,8 @@ async function saveTask(fields, scope = 'one') {
   /* voice: null пишется намеренно, а не пропускается. При правке запись
      собирается как { ...old, ...clean }, и пропущенное поле оставило бы
      голос, который человек только что убрал. */
-  const clean = { title: title.trim(), note: note.trim(), voice: voice || null };
+  const before = fields.before ? Number(fields.before) : null;
+  const clean = { title: title.trim(), note: note.trim(), voice: voice || null, before };
 
   const old = state.editing ? state.tasks.find((x) => x.id === state.editing) : null;
 
@@ -2152,6 +2278,9 @@ document.addEventListener('click', async (e) => {
     // вход на «Месяц» всегда показывает календарь: если человек был
     // в открытом дне, повторный тап по вкладке возвращает его назад
     if (tab === 'month') state.monthDay = null;
+    // а уход с «Месяца» забывает поиск: возвращаться к нему через день
+    // незачем, а найденное вчера под сегодняшним запросом — обман
+    else state.query = '';
     state.tab = tab;
     fresh = true;
     render();
@@ -2425,6 +2554,7 @@ form.addEventListener('submit', async (e) => {
       : null,
     date: form.elements.date.value,
     time: form.elements.time.value,
+    before: form.elements.before.value,
     repeatKind: repeatSelect.value,
     weekdays: readWeekdays(),
   };
@@ -2442,6 +2572,16 @@ form.addEventListener('submit', async (e) => {
 
   await saveTask(fields, 'one');
   closeSheets();
+});
+
+/* Поиск слушаем на документе, а не на самом поле: поле живёт внутри
+   разметки, которую renderMonth переписывает целиком, и обработчик
+   на нём терялся бы при каждой перерисовке. Событие ввода всплывает,
+   так что документ его поймает независимо от того, кто сейчас на экране. */
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'month-search') return;
+  state.query = e.target.value;
+  paintSearch();
 });
 
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') dismiss(); });

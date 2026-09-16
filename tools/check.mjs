@@ -286,6 +286,9 @@ say('лист добавления', await b.evalIn(`JSON.stringify({
   // по умолчанию — сегодня и время на час вперёд, округлённое до пяти минут
   дата: document.querySelector('#f-date').value,
   время: document.querySelector('#f-time').value,
+  // второе уведомление по умолчанию выключено: у нового дела его быть
+  // не должно, иначе каждое дело начнёт напоминать дважды
+  заранее: document.querySelector('#f-before')?.value,
 })`));
 
 // ---------- действия над делом ----------
@@ -339,10 +342,17 @@ say('изменение', await b.evalIn(`JSON.stringify({
   название: document.querySelector('#f-title')?.value,
   заметка: document.querySelector('#f-note')?.value,
   время: document.querySelector('#f-time')?.value,
+  заранее: document.querySelector('#f-before')?.value,
   кнопка: document.querySelector('#task-form [type="submit"]')?.textContent,
 })`));
 
-await b.evalIn(`document.querySelector('#f-title').value = 'Купить сыр и хлеб'`);
+/* Правка заодно проверяет и «напомнить заранее»: у дела, заведённого
+   до появления поля, его нет, и в форме должно стоять «только
+   в назначенный час», а не пустота и не первая попавшаяся опция. */
+await b.evalIn(`(() => {
+  document.querySelector('#f-title').value = 'Купить сыр и хлеб';
+  document.querySelector('#f-before').value = '60';
+})()`);
 await b.evalIn(`document.querySelector('#task-form [type="submit"]').click()`);
 await sleep(700);
 say('после правки', await b.evalIn(`JSON.stringify({
@@ -350,6 +360,20 @@ say('после правки', await b.evalIn(`JSON.stringify({
   заметка: document.querySelector('[data-id="a4"] .task__note')?.textContent,
   всего: document.querySelectorAll('.task').length,
 })`));
+
+/* В базу поле легло числом минут, а не строкой из списка: строку
+   пришлось бы разбирать в трёх местах, и в одном из них забыть. */
+say('заранее в базе', await b.evalIn(`(async () => {
+  const db = await new Promise((res) => {
+    const rq = indexedDB.open('napominalka', 3);
+    rq.onsuccess = () => res(rq.result);
+  });
+  const t = await new Promise((res) => {
+    const r = db.transaction('tasks', 'readonly').objectStore('tasks').get('a4');
+    r.onsuccess = () => res(r.result);
+  });
+  return JSON.stringify({ before: t?.before, тип: typeof t?.before });
+})()`));
 
 await longPress('[data-id="a4"]');
 await b.evalIn(`document.querySelector('[data-act="move"]').click()`);
@@ -462,6 +486,50 @@ say('плотность', await b.evalIn(`(() => {
     растёт: ширина('1') < ширина('2') && ширина('2') < ширина('3'),
   });
 })()`));
+
+// ---------- поиск в «Месяце» ----------
+
+/* Ищем по заметке, а не по названию: в жизни помнишь не то, как назвал
+   дело, а то, что с ним связано. В наборе есть «Купить сыр галанский»
+   с заметкой «в Пятёрочке у дома» — по «пятёрочке» оно и должно найтись.
+
+   Ввод шлём событием, а не через value: приложение слушает input,
+   и прямая запись в поле не отличима от пустого места. */
+const typeSearch = (text) => b.evalIn(`(() => {
+  const i = document.getElementById('month-search');
+  i.value = ${JSON.stringify(text)};
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+
+await typeSearch('пятёрочке');
+await sleep(300);
+say('поиск по заметке', await b.evalIn(`JSON.stringify({
+  календарь_скрыт: document.getElementById('month-cal')?.hidden,
+  найдено: document.querySelectorAll('#month-found .task').length,
+  подпись: document.querySelector('#month-found .task__time')?.textContent,
+  заголовок: document.querySelector('#month-found .found__head')?.textContent.trim(),
+})`));
+await b.shot('поиск');
+
+// одна буква — ещё не поиск: список под ней прыгал бы на каждое нажатие
+await typeSearch('к');
+await sleep(250);
+say('одна буква не ищет', await b.evalIn(`JSON.stringify({
+  календарь_на_месте: !document.getElementById('month-cal')?.hidden,
+  найдено: document.querySelectorAll('#month-found .task').length,
+})`));
+
+await typeSearch('простыня');
+await sleep(250);
+say('поиск без находок', await b.evalIn(
+  `document.querySelector('#month-found .found__head')?.textContent.trim()`));
+
+await typeSearch('');
+await sleep(250);
+say('поиск сброшен', await b.evalIn(`JSON.stringify({
+  календарь_на_месте: !document.getElementById('month-cal')?.hidden,
+  найдено: document.querySelectorAll('#month-found .task').length,
+})`));
 
 // ---------- повторы ----------
 

@@ -212,7 +212,10 @@ export async function apply({ items, sound }) {
     if (!soon.length) return { scheduled: 0 };
 
     const notes = soon.map((it) => ({
-      id: alarmId(it.id),
+      /* Номер — по ключу, а не по делу: у одного дела бывает два
+         уведомления (заранее и в срок), и общий номер означал бы,
+         что второе затрёт первое. */
+      id: alarmId(it.key || it.id),
       title: it.title,
       body: it.body,
       /* allowWhileIdle — самое важное слово во всём файле. Без него

@@ -70,6 +70,23 @@
       </div>
     </div>
 
+    <!-- Второе уведомление, раньше срока. Необязательное и по умолчанию
+         выключено: большинству дел хватает одного напоминания в свой час,
+         и добавлять к каждому второе значило бы удвоить шум. Оно для тех
+         дел, к которым надо собраться, — «за час», «за день». -->
+    <div class="field">
+      <label class="field__label" for="f-before">Напомнить заранее <span>— не обязательно</span></label>
+      <div class="select">
+        <select class="field__input" id="f-before" name="before">
+          <option value="">Только в назначенный час</option>
+          <option value="10">За 10 минут</option>
+          <option value="60">За час</option>
+          <option value="180">За три часа</option>
+          <option value="1440">За день</option>
+        </select>
+      </div>
+    </div>
+
     <div class="field">
       <label class="field__label" for="f-repeat">Повторять</label>
       <div class="select">
