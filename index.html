@@ -223,6 +223,20 @@
     <button class="btn btn--ghost btn--mini" type="button" data-act="remind" id="remind-btn">Включить</button>
   </div>
 
+  <!-- Звук напоминания. Строка только для приложения: в браузере звук
+       уведомления выбирает система, и выбирать там нечего. В приложении
+       свои два — системный и наш. Показывается из syncSoundRow() -->
+  <div class="opt opt--stack" id="sound-row" hidden>
+    <div>
+      <div class="opt__name">Звук напоминания</div>
+      <div class="opt__hint" id="sound-hint">Системный, как у остальных уведомлений</div>
+    </div>
+    <div class="seg" role="group" aria-label="Звук напоминания">
+      <button type="button" data-sound-set="system" aria-pressed="true">Система</button>
+      <button type="button" data-sound-set="chime"  aria-pressed="false">Свой</button>
+    </div>
+  </div>
+
   <!-- Строка про установку. hidden в разметке, а не из скрипта: так она
        не мелькнёт до первой отрисовки. Что показывать внутри — кнопку или
        подсказку — решает syncInstallRow() в app.js, там же и почему -->

@@ -80,6 +80,14 @@ const shown = (t) => !t.skipped;
 
 /* ---------- Состояние ---------- */
 
+/* Приложение это или браузер. Опознаём по мостику, который Capacitor
+   кладёт в страницу: в браузере его нет, внутри приложения есть.
+
+   Стоит здесь, наверху, а не там, где им пользуются: значение нужно
+   уже при первой отрисовке настроек, а `const` ниже по файлу к тому
+   моменту ещё не выполнен — обращение к нему было бы ошибкой. */
+const isNativeApp = Boolean(window.Capacitor?.isNativePlatform?.());
+
 const state = {
   tab: 'today',
   tasks: [],
@@ -95,6 +103,10 @@ const state = {
   monthDay: null,     // полночь выбранного дня, null — показываем календарь
   yearCursor: null,   // номер показываемого года, см. renderYear
   currency: localStorage.getItem('currency') || 'rub',  // для сумм в подписках
+  // Напоминания в приложении: включены ли и каким звуком. В браузере
+  // эти поля не значат ничего — там напоминает сервер, и звук системный.
+  remindersOn: localStorage.getItem('remindersOn') !== '0',
+  alarmSound: localStorage.getItem('alarmSound') || 'system',
   subs: [],           // подписки, см. renderSubs
   sheetSub: null,     // id подписки, для которой открыт лист действий
   editingSub: null,   // id подписки, которую правят в форме
@@ -808,10 +820,17 @@ noteRec.addEventListener('click', async () => {
     noteClock.textContent = '0:00';
     setNoteState('live');
     await startRecording();
-  } catch {
-    // В доступе к микрофону отказано (или его нет) — возвращаем форму как
-    // была и говорим об этом в подсказке поля, а не всплывающим окном.
-    noteText.placeholder = 'Микрофон недоступен — запишите текстом';
+  } catch (err) {
+    /* В доступе к микрофону отказано (или его нет) — возвращаем форму как
+       была и говорим об этом в подсказке поля, а не всплывающим окном.
+
+       Отказ и поломка — разные вещи, и подсказка должна быть разной.
+       В приложении отказ выглядит именно так: разрешение не выдано,
+       запись начинается и тут же обрывается. Человеку надо сказать,
+       куда идти, а не «недоступен» — иначе он решит, что сломалось. */
+    noteText.placeholder = err?.name === 'NotAllowedError' || err?.name === 'SecurityError'
+      ? 'Нет доступа к микрофону — разрешите его в настройках телефона'
+      : 'Микрофон недоступен — запишите текстом';
     if (redoBackup) { showVoice(redoBackup); redoBackup = null; }
     else clearVoice();
   }
@@ -1189,7 +1208,114 @@ function syncSettings() {
   // напоминаний спрашивает у браузера подписку — это ожидание, и оно
   // не должно задерживать соседей.
   syncInstallRow();
+  syncSoundRow();
   syncRemindersRow();
+}
+
+/* Звук напоминания — только в приложении. В браузере уведомление играет
+   тем, что выбрано в самом телефоне для уведомлений, и приложение
+   на это не влияет никак; показывать там переключатель значило бы
+   обещать то, чего оно не делает. */
+const SOUND_HINT = {
+  system: 'Системный, как у остальных уведомлений',
+  chime:  'Свой: короткий колокольчик, тише системного',
+};
+
+const soundRow  = document.getElementById('sound-row');
+const soundHint = document.getElementById('sound-hint');
+
+function syncSoundRow() {
+  if (!soundRow) return;
+  soundRow.hidden = !isNativeApp;
+  if (!isNativeApp) return;
+  for (const b of soundRow.querySelectorAll('[data-sound-set]')) {
+    b.setAttribute('aria-pressed', String(b.dataset.soundSet === state.alarmSound));
+  }
+  soundHint.textContent = SOUND_HINT[state.alarmSound] || SOUND_HINT.system;
+}
+
+/* ---------- Напоминания в приложении ----------
+
+   Внутри приложения будильник ставит сама система, и сервер для этого
+   не нужен. Всё, что относится к телефону, лежит в src/native.js — там
+   плагины Capacitor, которых в браузере нет. Поэтому файл подгружается
+   лениво и только здесь: в браузере эта ветка не выполняется ни разу,
+   и приложение остаётся обычной страницей без единой зависимости.
+
+   Отказ на любом шаге не должен ломать приложение. Не загрузился
+   плагин, не дали разрешение, не поставился будильник — дела, подписки
+   и голос работают как работали, а строка в настройках скажет, что
+   напоминаний не будет. Молчаливо сломанным напоминаниям быть незачем:
+   человек на них рассчитывает. */
+
+let nativeMod = null;
+let nativeTried = false;
+let alarmsApplied = '';   // подпись последнего набора — чтобы не дёргать систему зря
+
+async function nativeReady() {
+  if (!isNativeApp) return null;
+  if (!nativeTried) {
+    nativeTried = true;
+    try {
+      nativeMod = await import('./native.js');
+      // Кнопки под уведомлением и обработчик нажатий — один раз
+      // за запуск. Обработчик ставим до первого будильника: нажатие
+      // может прийти в тот же момент.
+      await nativeMod.listen(onAlarmAction);
+      await nativeMod.prepareActions();
+    } catch {
+      nativeMod = null;
+    }
+  }
+  return nativeMod;
+}
+
+/** Нажатие в уведомлении.
+
+    Сюда приходит и «Готово», и «Позже», и обычный тычок по уведомлению:
+    у тычка действие называется `tap`, и по нему приложение просто
+    открывается — отмечать за человека оно ничего не должно. */
+async function onAlarmAction({ action, taskId }) {
+  const t = state.tasks.find((x) => x.id === taskId);
+  if (!t) return;
+  if (action === 'done') {
+    if (!t.done) await toggleTask(taskId);
+    return;
+  }
+  if (action === 'later') {
+    /* Отложить — значит передвинуть само время дела. Отдельного поля
+       «отложено до» нет намеренно: дело и так живёт временем, и второе
+       время пришлось бы учитывать везде, где учитывается первое. */
+    t.at = Date.now() + nativeMod.SNOOZE_MS;
+    t.done = false;
+    t.doneAt = null;
+    await db.put(t);
+    await refresh();
+  }
+}
+
+/** Пересчитать будильники.
+
+    Подпись нужна, чтобы не снимать и не ставить заново сотню будильников
+    на каждой перерисовке: список дел меняется куда реже, чем рисуется
+    экран. В подписи и времена, и звук, и то, включены ли напоминания
+    вообще, — всё, от чего зависит набор. */
+async function syncAlarms() {
+  const n = await nativeReady();
+  if (!n) return;
+
+  const on = state.remindersOn;
+  const sign = !on ? 'выключено' : state.alarmSound + '|' + state.tasks
+    .filter((t) => !t.done && !t.skipped && t.at > Date.now())
+    .sort((a, b) => a.at - b.at)
+    .slice(0, 100)
+    .map((t) => t.id + '@' + t.at)
+    .join(',');
+  if (sign === alarmsApplied) return;
+  alarmsApplied = sign;
+
+  if (!on) { await n.cancelAll(); return; }
+  await n.apply({ tasks: state.tasks, sound: state.alarmSound });
 }
 
 /* ---------- Напоминания ----------
@@ -1281,6 +1407,28 @@ async function syncRemindersRow() {
   const hint = document.getElementById('remind-hint');
   const btn = document.getElementById('remind-btn');
 
+  /* Внутри приложения напоминания устроены иначе, и разрешение спрашивает
+     не браузер, а Android. Строка та же — человеку незачем знать, кто
+     именно спрашивает, — но подписи другие. */
+  const n = await nativeReady();
+  if (n) {
+    const perm = await n.permission();
+    const on = perm === 'granted' && state.remindersOn;
+    btn.hidden = false;
+    btn.textContent = on ? 'Выключить' : 'Включить';
+
+    /* «Ещё не спрашивали» и «уже запретили» — разные вещи, и делать надо
+       разное. В первом случае повторное нажатие покажет вопрос Android,
+       во втором система его уже не покажет: разрешение выдаётся один раз,
+       и обратно только руками, в настройках телефона. Сказать об этом
+       надо прямо, иначе кнопка выглядит сломанной. */
+    hint.textContent = on ? 'Напомнит, даже когда приложение закрыто'
+      : perm === 'granted' ? 'Сейчас выключены — нажмите, чтобы включить'
+      : perm === 'prompt' ? 'Разрешите уведомления — иначе напоминать нечем'
+      : 'Уведомления запрещены — разрешите их в настройках телефона';
+    return;
+  }
+
   if (!canRemind()) {
     hint.textContent = SERVER
       ? 'Этот браузер напоминать не умеет'
@@ -1331,6 +1479,15 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
 
 function syncInstallRow() {
   if (!installRow) return;
+
+  /* Внутри приложения предлагать установку нечего: оно уже установлено.
+     Строка тут не просто лишняя — она бы говорила неправду: браузер
+     внутри приложения тот же самый и в ответ на кнопку сообщил бы,
+     что ставить не умеет. */
+  if (isNativeApp) {
+    installRow.hidden = true;
+    return;
+  }
 
   // уже стоит — предлагать нечего
   if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
@@ -1893,7 +2050,9 @@ async function refresh() {
   render();
   // Список времён на сервере держим свежим. Не ждём: напоминания — не то,
   // ради чего стоит задерживать отрисовку. Внутри свой предел частоты.
+  // В приложении то же самое, но наоборот: не на сервер, а в систему.
   syncTimes();
+  syncAlarms();
 }
 
 document.addEventListener('click', async (e) => {
@@ -1969,6 +2128,22 @@ document.addEventListener('click', async (e) => {
 
     if (a === 'remind') {
       try {
+        const n = await nativeReady();
+        if (n) {
+          /* Разрешение спрашиваем только когда включаем. При выключении
+             спрашивать нечего: отозвать разрешение обратно приложение
+             не может, а перестать будить — может, и этого достаточно. */
+          if (await n.permission() === 'granted' && state.remindersOn) {
+            state.remindersOn = false;
+          } else {
+            state.remindersOn = await n.ask() === 'granted';
+          }
+          localStorage.setItem('remindersOn', state.remindersOn ? '1' : '0');
+          alarmsApplied = '';   // подпись устарела — набор пересчитается
+          await syncAlarms();
+          await syncRemindersRow();
+          return;
+        }
         const sub = await pushReady();
         if (sub) {
           await sub.unsubscribe();     // отписались — сервер узнает об этом сам, ответом 410
@@ -2090,6 +2265,19 @@ for (const b of document.querySelectorAll('[data-accent-set]')) {
   });
 }
 
+for (const b of document.querySelectorAll('[data-sound-set]')) {
+  b.addEventListener('click', async () => {
+    state.alarmSound = b.dataset.soundSet;
+    localStorage.setItem('alarmSound', state.alarmSound);
+    /* Звук у уже созданного канала Android менять не даёт, поэтому
+       смена звука — это новый канал, то есть полный пересчёт будильников.
+       Подпись сбрасываем: без этого syncAlarms решил бы, что набор тот же. */
+    alarmsApplied = '';
+    syncSettings();
+    await syncAlarms();
+  });
+}
+
 for (const b of document.querySelectorAll('[data-currency-set]')) {
   b.addEventListener('click', () => {
     state.currency = b.dataset.currencySet;
@@ -2166,6 +2354,20 @@ applyAppearance();
 
   syncNoteRow();
 
+  /* Разрешение на уведомления спрашиваем при первом запуске.
+
+     Это единственный момент, когда вопрос уместен: приложение только что
+     показалось целиком, человек видит, что оно из себя представляет,
+     и напоминания — то, ради чего он его и ставил. Спросить позже,
+     при создании первого дела, значило бы оборвать его на полуслове;
+     не спросить вовсе — оставить без напоминаний и без объяснения. */
+  if (isNativeApp) {
+    const n = await nativeReady();
+    if (n && await n.permission() === 'prompt') await n.ask();
+    await syncRemindersRow();
+    await syncAlarms();
+  }
+
   /* Метла по звуку — при запуске, когда возвращать удалённое уже нечего.
 
      Удаление дела не сносит его запись: удалённое можно вернуть полоской
@@ -2209,9 +2411,7 @@ setInterval(() => {
    вместо свежего — то есть ровно та беда, от которой мы избавлялись
    в браузере, только теперь ещё и без перезагрузки страницы.
 
-   Опознаём приложение по мостику, который Capacitor кладёт в страницу. */
-const isNativeApp = Boolean(window.Capacitor?.isNativePlatform?.());
-
+   Признак приложения (isNativeApp) объявлен в начале файла. */
 if (!isNativeApp && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

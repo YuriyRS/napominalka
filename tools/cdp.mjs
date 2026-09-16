@@ -30,10 +30,15 @@ const MIME = {
   '.png': 'image/png',
 };
 
-/* Chrome ставится в разные места; берём первый, который нашёлся */
+/* Chrome ставится в разные места; берём первый, который нашёлся.
+   Список не только про эту машину: значки для Android рисует тот же
+   стенд на сборочной машине GitHub, а там Linux. */
 const CHROME_PATHS = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/opt/google/chrome/chrome',
   process.env.CHROME_PATH,
 ].filter(Boolean);
 
@@ -71,11 +76,18 @@ export async function open({ port, out, width = 400, height = 880, scale = 2, ba
   });
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
 
-  // профиль каждый раз новый: иначе service worker и IndexedDB
-  // переживут запуск и следующий снимок покажет прошлую версию
+  /* Профиль каждый раз новый: иначе service worker и IndexedDB
+     переживут запуск и следующий снимок покажет прошлую версию.
+
+     Путь к профилю — прямой слэш и полный. Chrome 152 на обратных слэшах
+     не запускается вовсе: не отвечает на отладочный порт и ничего
+     не пишет в вывод, так что со стороны это выглядит как «стенд сломался,
+     а почему — непонятно». Разбирательство заняло полдня; пусть будет
+     записано. */
+  const profile = path.resolve(out, 'profile-' + Date.now()).split(path.sep).join('/');
   const chrome = spawn(findChrome(), [
     '--headless=new', `--remote-debugging-port=${port + 1}`,
-    `--user-data-dir=${path.join(out, 'profile-' + Date.now())}`,
+    `--user-data-dir=${profile}`,
     '--no-first-run', '--no-default-browser-check', '--disable-extensions',
     // Микрофона у headless Chrome нет, но есть поддельный — без него
     // запись голоса нечем проверить, а разрешение выдаётся сразу, иначе

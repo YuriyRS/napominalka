@@ -417,6 +417,17 @@ await b.evalIn(`document.querySelector('[data-act="settings"]').click()`);
 await sleep(400);
 say('установка: браузер не умеет', await rowState());
 await b.shot('установка-не-умеет');
+
+/* Звук напоминания — настройка только для приложения. В браузере
+   уведомление играет тем, что выбрано в телефоне, и приложение на это
+   не влияет; показанный здесь переключатель обещал бы несуществующее.
+   Строка обязана быть в разметке (её включает приложение) и обязана
+   быть скрыта в браузере. */
+say('звук: в браузере скрыт', await b.evalIn(`JSON.stringify({
+  есть: !!document.getElementById('sound-row'),
+  скрыта: document.getElementById('sound-row')?.hidden,
+})`));
+
 await b.evalIn(`document.querySelector('[data-act="close"]').click()`);
 await sleep(300);
 

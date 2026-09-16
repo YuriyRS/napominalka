@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Значок для строки состояния. Android не показывает его как есть:
+       он берёт форму и красит сам, поэтому здесь только белая галочка
+       на прозрачном — цветная превратилась бы в бесформенное пятно. -->
+  <g transform="translate(12 12) scale(0.084) translate(-260 -256)">
+    <path d="M186 262l52 52 96-116"
+          fill="none" stroke="#FFFFFF" stroke-width="42"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5A28E0"/>
+      <stop offset="1" stop-color="#7A2BF0"/>
+    </linearGradient>
+  </defs>
+  <!-- Круглый значок для телефонов до восьмого Android: там форму
+       задавал не систему, а сам значок, и он обязан быть вписан в круг. -->
+  <circle cx="256" cy="256" r="256" fill="url(#g)"/>
+  <circle cx="256" cy="256" r="126" fill="none" stroke="#FFFFFF" stroke-width="30" opacity=".38"/>
+  <path d="M186 262l52 52 96-116"
+        fill="none" stroke="#FFFFFF" stroke-width="42"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

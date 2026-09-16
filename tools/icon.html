@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<!-- Без этой строки Chrome считает шириной экрана 980 точек и вписывает
+     в них страницу: снимок выходит не значком, а его увеличенным углом.
+     Ширина вида — ровно та, что просит стенд. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>icon</title>
+<!-- Пустая страница ровно под размер будущей картинки.
+
+     Chrome умеет рисовать SVG, а нам из него нужны PNG: Android другого
+     формата для значков не принимает. Страница подставляется в стенд,
+     знак растягивается на весь экран, экран снимается — и снимок это
+     и есть готовая иконка нужного размера.
+
+     Фон прозрачный: у значка для строки состояния и у переднего слоя
+     адаптивного значка подложки быть не должно, иначе она закроет
+     то, что под ней. -->
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
+  img { display: block; width: 100vw; height: 100vh; }
+</style>
+<img id="i" alt="">
+<script>
+  const src = new URLSearchParams(location.search).get('src');
+  const img = document.getElementById('i');
+  // Признак готовности для стенда. Ждать onload мало: он не сработает,
+  // если картинка уже в кэше к моменту навешивания обработчика.
+  img.addEventListener('load', () => { document.title = 'ready'; });
+  img.addEventListener('error', () => { document.title = 'failed'; });
+  img.src = src;
+</script>
+</html>
