@@ -52,6 +52,14 @@ for (const script of ['icon.mjs', 'chime.mjs']) {
 
 const PERMISSIONS = [
   'android.permission.RECORD_AUDIO',
+  /* Без этого одного разрешения микрофон не работает, хотя доступ выдан
+     и RECORD_AUDIO на месте: WebView пишет в журнал «Requires
+     MODIFY_AUDIO_SETTINGS and RECORD_AUDIO. No audio device will be
+     available for recording» и отказывает в микрофоне, показывая при этом
+     системный вопрос и получая согласие. В Capacitor 1–2 оно лежало
+     в шаблоне, в третьей версии его убрали — и запись голоса перестала
+     работать у всех, кто собирал приложение на голом шаблоне. */
+  'android.permission.MODIFY_AUDIO_SETTINGS',
   'android.permission.POST_NOTIFICATIONS',
   'android.permission.SCHEDULE_EXACT_ALARM',
   'android.permission.USE_EXACT_ALARM',

@@ -830,7 +830,9 @@ noteRec.addEventListener('click', async () => {
        куда идти, а не «недоступен» — иначе он решит, что сломалось. */
     noteText.placeholder = err?.name === 'NotAllowedError' || err?.name === 'SecurityError'
       ? 'Нет доступа к микрофону — разрешите его в настройках телефона'
-      : 'Микрофон недоступен — запишите текстом';
+      // Имя ошибки в подсказке — не для человека, а для того, кому
+      // о ней расскажут. Без него «не работает» нечем починить.
+      : `Микрофон не отвечает (${err?.name || 'без причины'}) — запишите текстом`;
     if (redoBackup) { showVoice(redoBackup); redoBackup = null; }
     else clearVoice();
   }
@@ -923,11 +925,21 @@ const daysIn = (y, m) => new Date(y, m + 1, 0).getDate();
     День берётся из sub.day, а не из прошлой даты. Иначе 31-е съезжало бы:
     в феврале списание 28-го, и следующее вышло бы 28 марта вместо 31-го.
     Ровно та же ловушка, что у месячного повтора (§4.7), и решается так же. */
+/** Во сколько списывают. У подписок, заведённых до того, как время
+    появилось, его нет — им достаётся десять утра: час, когда списание
+    уже прошло, но день ещё не кончился. */
+const subTime = (sub) => sub.time || '10:00';
+
+const subAt = (sub, y, mo, d) => {
+  const [h, m] = subTime(sub).split(':').map(Number);
+  return new Date(y, mo, d, h, m, 0, 0).getTime();
+};
+
 function nextCharge(sub, from = sub.nextAt) {
   const d = new Date(from);
   const base = new Date(d.getFullYear(), d.getMonth() + (sub.period === 'year' ? 12 : 1), 1);
   const day = Math.min(sub.day || d.getDate(), daysIn(base.getFullYear(), base.getMonth()));
-  return new Date(base.getFullYear(), base.getMonth(), day).getTime();
+  return subAt(sub, base.getFullYear(), base.getMonth(), day);
 }
 
 const dayStart = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
@@ -939,7 +951,9 @@ const daysLeft = (ms) => Math.round((dayStart(ms) - startOfToday()) / 86_400_000
     «через 47 дней» ничего не говорит, а «17 октября» говорит. */
 function leftLabel(ms) {
   const n = daysLeft(ms);
-  if (n === 0) return 'сегодня';
+  // Время называем только у сегодняшнего: в остальных строках оно
+  // не помогает принять решение, а место занимает у всех.
+  if (n === 0) return `сегодня, ${hhmm(ms)}`;
   if (n === 1) return 'завтра';
   if (n < 0) return 'день прошёл';
   if (n <= 14) return `через ${n} ${plural(n, 'день', 'дня', 'дней')}`;
@@ -1066,6 +1080,7 @@ function openSubNew() {
   const d = new Date();
   d.setMonth(d.getMonth() + 1);
   subForm.elements.date.value = dateValue(d.getTime());
+  subForm.elements.time.value = '10:00';
   setSubColor(freeColor());
   subTitleEl.textContent = 'Новая подписка';
   subSubmit.textContent = 'Добавить';
@@ -1081,6 +1096,7 @@ function openSubEdit(id) {
   subForm.elements.amount.value = String(s.amount / 100).replace('.', ',');
   subForm.elements.period.value = s.period;
   subForm.elements.date.value = dateValue(s.nextAt);
+  subForm.elements.time.value = subTime(s);
   setSubColor(s.color || SUB_COLORS[0]);
   subTitleEl.textContent = 'Изменить подписку';
   subSubmit.textContent = 'Сохранить';
@@ -1109,16 +1125,20 @@ subForm.addEventListener('submit', async (e) => {
 
   const [y, mo, d] = subForm.elements.date.value.split('-').map(Number);
   const old = state.editingSub ? state.subs.find((x) => x.id === state.editingSub) : null;
+  const time = subForm.elements.time.value || '10:00';
+  const [h, mi] = time.split(':').map(Number);
 
   await db.putSub({
     id: old ? old.id : db.newId(),
     title,
     amount,
     period: subForm.elements.period.value,
-    nextAt: new Date(y, mo - 1, d).getTime(),
+    nextAt: new Date(y, mo - 1, d, h, mi).getTime(),
     // день месяца хранится отдельно: из него считается следующее списание,
     // и 31-е не съезжает на 28-е навсегда (см. nextCharge)
     day: d,
+    // а время — отдельно от дня: день нужен для счёта, время для будильника
+    time,
     color: state.subColor,
     state: old ? old.state : 'on',
     createdAt: old ? old.createdAt : Date.now(),
@@ -1270,16 +1290,66 @@ async function nativeReady() {
   return nativeMod;
 }
 
+/** Что и когда напоминать.
+
+    Список собирается здесь, а не в native.js: что такое дело, что такое
+    подписка и когда у них срок — знает приложение, и второго места,
+    где эти правила записаны, быть не должно. native.js получает готовое
+    и только ставит будильники. */
+function alarmItems() {
+  const now = Date.now();
+  const items = [];
+
+  for (const t of state.tasks) {
+    if (t.done || t.skipped || !(t.at > now)) continue;
+    items.push({ id: t.id, at: t.at, kind: 'task', title: t.title, body: noteBody(t.note) });
+  }
+
+  /* Подписки напоминают о себе сами. Раньше напоминать им было нечего:
+     у подписки была только дата, а будильник ставится на время, —
+     и в списке времён ей было нечего делать. Теперь время у неё есть. */
+  for (const s of state.subs) {
+    if (s.state === 'off' || !(s.nextAt > now)) continue;
+    items.push({
+      id: s.id, at: s.nextAt, kind: 'sub',
+      title: s.title,
+      body: `${money(s.amount)} — списание по подписке`,
+    });
+  }
+
+  // Ближайшие первыми: дальше native.js обрежет список по длине.
+  return items.sort((a, b) => a.at - b.at);
+}
+
+/** Строка под названием. Заметка, если она есть: без неё напоминание
+    повторяет название, которое человек и так видит. Голосовая заметка
+    в уведомление не влезает — там только кнопка прослушать в приложении. */
+function noteBody(note) {
+  const s = (note || '').trim();
+  if (!s) return 'Пора';
+  return s.length > 90 ? s.slice(0, 89).trimEnd() + '…' : s;
+}
+
 /** Нажатие в уведомлении.
 
-    Сюда приходит и «Готово», и «Позже», и обычный тычок по уведомлению:
-    у тычка действие называется `tap`, и по нему приложение просто
-    открывается — отмечать за человека оно ничего не должно. */
-async function onAlarmAction({ action, taskId }) {
-  const t = state.tasks.find((x) => x.id === taskId);
+    Сюда приходит и «Готово», и «Позже», и «Оплачено», и обычный тычок
+    по уведомлению: у тычка действие называется `tap`, и по нему
+    приложение просто открывается — отмечать за человека оно ничего
+    не должно. */
+async function onAlarmAction({ action, id, kind }) {
+  if (kind === 'sub') {
+    const s = state.subs.find((x) => x.id === id);
+    if (!s) return;
+    if (action !== 'paid') return;   // тычок — просто открылось приложение
+    await db.putSub({ ...s, nextAt: nextCharge(s) });
+    await refresh();
+    return;
+  }
+
+  const t = state.tasks.find((x) => x.id === id);
   if (!t) return;
   if (action === 'done') {
-    if (!t.done) await toggleTask(taskId);
+    if (!t.done) await toggleTask(id);
     return;
   }
   if (action === 'later') {
@@ -1304,18 +1374,13 @@ async function syncAlarms() {
   const n = await nativeReady();
   if (!n) return;
 
-  const on = state.remindersOn;
-  const sign = !on ? 'выключено' : state.alarmSound + '|' + state.tasks
-    .filter((t) => !t.done && !t.skipped && t.at > Date.now())
-    .sort((a, b) => a.at - b.at)
-    .slice(0, 100)
-    .map((t) => t.id + '@' + t.at)
-    .join(',');
+  const items = state.remindersOn ? alarmItems() : [];
+  const sign = state.alarmSound + '|' + items.map((i) => i.id + '@' + i.at).join(',');
   if (sign === alarmsApplied) return;
   alarmsApplied = sign;
 
-  if (!on) { await n.cancelAll(); return; }
-  await n.apply({ tasks: state.tasks, sound: state.alarmSound });
+  if (!items.length) { await n.cancelAll(); return; }
+  await n.apply({ items, sound: state.alarmSound });
 }
 
 /* ---------- Напоминания ----------
@@ -2277,6 +2342,21 @@ for (const b of document.querySelectorAll('[data-sound-set]')) {
     await syncAlarms();
   });
 }
+
+/* «Проверить» вместо догадок. Выбрать звук, не услышав его, нельзя:
+   оба варианта одинаково тихи, пока не прозвучат. Кнопка ставит одно
+   уведомление через полторы секунды — ровно тем каналом, который выбран,
+   так что слышно будет именно то, что придёт в назначенную минуту. */
+document.getElementById('sound-test')?.addEventListener('click', async () => {
+  const n = await nativeReady();
+  if (!n) return;
+  const hint = document.getElementById('sound-hint');
+  const was = hint.textContent;
+  hint.textContent = 'Сейчас придёт проверочное уведомление…';
+  const res = await n.trySound(state.alarmSound);
+  setTimeout(() => { hint.textContent = was; }, 4000);
+  if (!res.ok) hint.textContent = 'Не получилось показать: ' + res.error;
+});
 
 for (const b of document.querySelectorAll('[data-currency-set]')) {
   b.addEventListener('click', () => {

@@ -22,11 +22,22 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 /* Два канала, а не один с настройкой. Android запрещает менять звук
    у существующего канала: человек один раз выбрал — и всё, навсегда.
    Обойти это можно только новым каналом, поэтому их два, по одному
-   на каждый вариант, и в уведомлении указывается нужный. */
-const CHANNEL_CHIME = 'domovoy-chime';
-const CHANNEL_PLAIN = 'domovoy-plain';
+   на каждый вариант, и в уведомлении указывается нужный.
 
-const ACTION_TYPE = 'domovoy-task';
+   Номер версии в имени — не украшение. Канал с прежним именем уже создан
+   на телефоне, и звук у него не тот: пересоздать его с новым звуком
+   Android не даст, он просто оставит прежний. Чтобы смена звука дошла
+   до телефона, имя должно быть другим. Прежние имена перечислены ниже
+   и сносятся за ненадобностью. */
+const CHANNEL_CHIME = 'domovoy-remind-chime-v2';
+const CHANNEL_PLAIN = 'domovoy-remind-plain-v2';
+const CHANNEL_STALE = ['domovoy-chime', 'domovoy-plain'];
+
+/* Два вида уведомлений, и кнопки у них разные. У дела — «Готово»
+   и «Позже», у подписки — «Оплачено»: события разные, и одно действие
+   на оба случая только запутало бы. */
+const ACTION_TASK = 'domovoy-task';
+const ACTION_SUB = 'domovoy-sub';
 
 /* На сколько откладывается дело по кнопке «Позже». Десять минут —
    не настройка, а догадка: столько нужно, чтобы дойти до компьютера
@@ -57,16 +68,6 @@ function alarmId(taskId) {
     h = Math.imul(h, 0x01000193);
   }
   return (h & 0x7fffffff) || 1;
-}
-
-/** Что показать в уведомлении, кроме названия дела.
-    Заметка, если она есть: без неё напоминание повторяет название,
-    которое человек и так видит. Голосовая заметка в уведомление
-    не влезает — там только кнопка прослушать в самом приложении. */
-function bodyOf(task) {
-  const note = (task.note || '').trim();
-  if (!note) return 'Пора';
-  return note.length > 90 ? note.slice(0, 89).trimEnd() + '…' : note;
 }
 
 /** Разрешение на уведомления. Отдельным вызовом, потому что спрашивать
@@ -110,15 +111,23 @@ async function ensureChannels(sound) {
   };
 
   if (sound === 'chime') {
-    /* Полный адрес ресурса, а не просто имя файла. Имя плагин толкует
-       по-своему в разных версиях, а готовый android.resource://
-       он обязан принять как есть — это и есть штатный способ сослаться
-       на файл из res/raw. Файл кладёт tools/chime.mjs. */
-    channel.sound = 'android.resource://ru.domovoy.app/raw/domovoy_chime';
+    /* Имя файла без пути и без расширения — так, как назывался бы
+       ресурс в коде (R.raw.domovoy_chime). Плагин сам собирает из него
+       адрес android.resource://…/raw/…, и в какой бы версии он это
+       ни делал, имя подставляется одно и то же.
+
+       Здесь уже была ошибка: я передавал готовый адрес целиком, решив,
+       что так надёжнее. Плагин подставил его в середину своего адреса,
+       адрес вышел неразрешимый, и «свой звук» играл тишиной — уведомление
+       приходило, телефон вибрировал, а звука не было. Молча. Файл кладёт
+       tools/chime.mjs. */
+    channel.sound = 'domovoy_chime';
   }
 
   await LocalNotifications.createChannel(channel);
-  try { await LocalNotifications.deleteChannel({ id: other }); } catch { /* лишний канал в настройках — не беда */ }
+  for (const id of [other, ...CHANNEL_STALE]) {
+    try { await LocalNotifications.deleteChannel({ id }); } catch { /* лишний канал в настройках — не беда */ }
+  }
 }
 
 /** Кнопки под уведомлением.
@@ -131,15 +140,48 @@ async function ensureChannels(sound) {
 export async function prepareActions() {
   try {
     await LocalNotifications.registerActionTypes({
-      types: [{
-        id: ACTION_TYPE,
-        actions: [
-          { id: 'done', title: 'Готово', foreground: true },
-          { id: 'later', title: 'Позже', foreground: true },
-        ],
-      }],
+      types: [
+        {
+          id: ACTION_TASK,
+          actions: [
+            { id: 'done', title: 'Готово', foreground: true },
+            { id: 'later', title: 'Позже', foreground: true },
+          ],
+        },
+        {
+          id: ACTION_SUB,
+          actions: [
+            /* Одна кнопка, а не две. Вторая неизбежно была бы либо
+               «отменить подписку» — слишком круто для нажатия вслепую
+               из шторки, — либо повторением первой. */
+            { id: 'paid', title: 'Оплачено', foreground: true },
+          ],
+        },
+      ],
     });
   } catch { /* без кнопок уведомление всё равно работает */ }
+}
+
+/** Показать одно уведомление прямо сейчас — кнопка «Проверить» рядом
+    с выбором звука. Без неё выбрать звук невозможно: оба варианта
+    выглядят одинаково — одинаково тихо — пока не услышишь. */
+export async function trySound(sound) {
+  try {
+    await ensureChannels(sound);
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: alarmId('проверка-звука'),
+        title: 'Так будет звучать напоминание',
+        body: 'Это проверка. Настоящее придёт в назначенную минуту',
+        schedule: { at: new Date(Date.now() + 1500), allowWhileIdle: true },
+        smallIcon: 'ic_stat_domovoy',
+        ...(sound === 'chime' ? { channelId: CHANNEL_CHIME } : {}),
+      }],
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
 }
 
 /** Пересчитать будильники целиком.
@@ -152,8 +194,7 @@ export async function prepareActions() {
 
     Ошибка здесь не должна ронять приложение: без напоминаний оно
     остаётся рабочим, и молчаливо сломанным ему быть незачем. */
-export async function apply({ tasks, sound }) {
-  const now = Date.now();
+export async function apply({ items, sound }) {
   try {
     /* Канал — единственное место, где что-то может не получиться:
        например, звук не найдётся. Тогда остаёмся на системном канале:
@@ -167,25 +208,21 @@ export async function apply({ tasks, sound }) {
     const { notifications: pending } = await LocalNotifications.getPending();
     if (pending.length) await LocalNotifications.cancel({ notifications: pending });
 
-    const soon = tasks
-      .filter((t) => !t.done && !t.skipped && t.at > now)
-      .sort((a, b) => a.at - b.at)
-      .slice(0, MAX_ALARMS);
-
+    const soon = items.slice(0, MAX_ALARMS);
     if (!soon.length) return { scheduled: 0 };
 
-    const notes = soon.map((t) => ({
-      id: alarmId(t.id),
-      title: t.title,
-      body: bodyOf(t),
+    const notes = soon.map((it) => ({
+      id: alarmId(it.id),
+      title: it.title,
+      body: it.body,
       /* allowWhileIdle — самое важное слово во всём файле. Без него
          Android откладывает будильник до момента, когда телефон
          решит, что проснулся: ночью это двадцать минут, и напоминание
          приходит «около того». */
-      schedule: { at: new Date(t.at), allowWhileIdle: true },
+      schedule: { at: new Date(it.at), allowWhileIdle: true },
       smallIcon: 'ic_stat_domovoy',
-      actionTypeId: ACTION_TYPE,
-      extra: { taskId: t.id },
+      actionTypeId: it.kind === 'sub' ? ACTION_SUB : ACTION_TASK,
+      extra: { kind: it.kind, id: it.id },
       ...(channelId ? { channelId } : {}),
     }));
 
@@ -222,10 +259,10 @@ export async function cancelAll() {
 export async function listen(handler) {
   try {
     await LocalNotifications.addListener('localNotificationActionPerformed', (e) => {
-      const taskId = e?.notification?.extra?.taskId;
-      // Без дела нажатие бессмысленно: чужое уведомление или наше,
-      // но от удалённого дела. Молчим — приложение всё равно откроется.
-      if (taskId) handler({ action: e.actionId, taskId });
+      const extra = e?.notification?.extra;
+      // Без опознания нажатие бессмысленно: чужое уведомление или наше,
+      // но от удалённого. Молчим — приложение всё равно откроется.
+      if (extra?.id) handler({ action: e.actionId, id: extra.id, kind: extra.kind });
     });
     return true;
   } catch {

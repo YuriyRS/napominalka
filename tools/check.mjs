@@ -426,6 +426,7 @@ await b.shot('установка-не-умеет');
 say('звук: в браузере скрыт', await b.evalIn(`JSON.stringify({
   есть: !!document.getElementById('sound-row'),
   скрыта: document.getElementById('sound-row')?.hidden,
+  кнопка_проверки: !!document.getElementById('sound-test'),
 })`));
 
 await b.evalIn(`document.querySelector('[data-act="close"]').click()`);
@@ -811,7 +812,14 @@ const readSub = (title) => b.evalIn(`(async () => {
     r.onsuccess = () => res(r.result);
   });
   const s = all.find((x) => x.title === '${title}');
-  return s ? new Date(s.nextAt).toLocaleDateString('ru-RU') : 'нет';
+  /* Время в ответе не для красоты: у подписки оно появилось ради
+     будильника, и проверять надо именно то, что дальше всех от глаза, —
+     что «оплачено» двигает дату, не теряя часа. По одному числу дня
+     потерянный час не виден. */
+  return s ? new Date(s.nextAt).toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  }) : 'нет';
 })()`);
 
 await b.evalIn(seedExpr([], DEMO_SUBS));
@@ -853,11 +861,19 @@ await sleep(400);
    только месяц позволит. */
 await b.evalIn(`document.querySelector('[data-act="sub-new"]').click()`);
 await sleep(700);
+say('время в форме', await b.evalIn(`JSON.stringify({
+  поле: Boolean(document.querySelector('#sub-form').elements.time),
+  по_умолчанию: document.querySelector('#sub-form').elements.time.value,
+})`));
+
 await b.evalIn(`(() => {
   const f = document.querySelector('#sub-form');
   f.elements.title.value = 'Проверка 31-го';
   f.elements.amount.value = '100';
   f.elements.date.value = '2026-01-31';
+  // Время нарочно не десять утра: иначе потеря часа при «оплачено»
+  // осталась бы незамеченной — она совпала бы с умолчанием.
+  f.elements.time.value = '07:30';
   f.requestSubmit();
 })()`);
 await sleep(900);

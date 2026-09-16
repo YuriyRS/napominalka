@@ -235,6 +235,9 @@
       <button type="button" data-sound-set="system" aria-pressed="true">Система</button>
       <button type="button" data-sound-set="chime"  aria-pressed="false">Свой</button>
     </div>
+    <!-- Звук нельзя выбрать, не услышав: оба варианта одинаково тихи,
+         пока не прозвучат. Кнопка ставит одно проверочное уведомление. -->
+    <button class="btn btn--ghost btn--mini sound__test" type="button" id="sound-test">Проверить</button>
   </div>
 
   <!-- Строка про установку. hidden в разметке, а не из скрипта: так она
@@ -292,6 +295,13 @@
     <div class="field">
       <label class="field__label" for="s-date">Когда спишут в следующий раз</label>
       <input class="field__input" id="s-date" name="date" type="date" required>
+    </div>
+
+    <!-- Время здесь не для порядка, а чтобы было когда напомнить:
+         будильник ставится на минуту, а у одной даты минуты нет. -->
+    <div class="field">
+      <label class="field__label" for="s-time">Во сколько</label>
+      <input class="field__input" id="s-time" name="time" type="time" value="10:00" required>
     </div>
 
     <div class="field">
