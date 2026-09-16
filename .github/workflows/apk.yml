@@ -115,6 +115,27 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      # Что на самом деле оказалось в манифесте собранного приложения.
+
+      # Проверка не для порядка. Разрешения дописывает наш скрипт, и почти
+      # каждое — условие, без которого что-то молча не работает: без
+      # MODIFY_AUDIO_SETTINGS не пишется голос, без USE_EXACT_ALARM
+      # будильник приходит «около того». Снаружи и то и другое выглядит
+      # как сломанный код, а искать приходится на телефоне.
+      - name: Что попало в манифест
+        run: |
+          # Самый крупный из собранных манифестов — он и есть слитый:
+          # в нём наши строки вместе с теми, что принесли плагины.
+          merged=$(find android/app/build -name AndroidManifest.xml -printf '%s %p\n' \
+                   | sort -rn | head -1 | cut -d' ' -f2-)
+          echo "слитый манифест: $merged"
+          grep -o 'android:name="android.permission[^"]*"' "$merged" | sort -u
+
+          for p in RECORD_AUDIO MODIFY_AUDIO_SETTINGS POST_NOTIFICATIONS USE_EXACT_ALARM; do
+            grep -q "android.permission.$p" "$merged" \
+              || { echo "::error::в манифесте нет разрешения $p"; exit 1; }
+          done
+
       - name: Переименовать
         run: |
           mkdir -p out

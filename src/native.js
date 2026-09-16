@@ -242,6 +242,29 @@ export async function apply({ items, sound }) {
   }
 }
 
+/** Что у системы на самом деле стоит.
+
+    Не украшение и не отладка: до сих пор приложение никак не показывало,
+    назначены будильники или нет, и когда напоминание не приходит, отличить
+    «не поставилось» от «поставилось, но система задержала» было нечем.
+    Разбираться приходилось догадками. Теперь это видно в настройках. */
+export async function pending() {
+  try {
+    const { notifications } = await LocalNotifications.getPending();
+    if (!notifications.length) return { count: 0, at: null };
+    /* Считаем ближайшее сами: порядок в ответе не обещан, а полагаться
+       на него, не проверив, — тот же способ ошибиться, что и раньше. */
+    let at = null;
+    for (const n of notifications) {
+      const t = n.schedule?.at ? new Date(n.schedule.at).getTime() : null;
+      if (t && (at === null || t < at)) at = t;
+    }
+    return { count: notifications.length, at };
+  } catch {
+    return { count: 0, at: null };
+  }
+}
+
 /** Снять все будильники. Так выключаются напоминания: отозвать
     разрешение обратно приложение не может, а перестать будить — может. */
 export async function cancelAll() {
