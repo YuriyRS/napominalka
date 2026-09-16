@@ -75,6 +75,25 @@ export function forgetSound() {
   try { soundBridge()?.removeSound?.(); } catch { /* снимать нечего */ }
 }
 
+/** Экономит ли телефон на нас.
+
+    Тут важно не соврать в другую сторону: если моста нет, ответ
+    «всё хорошо», а не «всё плохо». Иначе строка с просьбой разрешить
+    висела бы в настройках там, где она ничего не значит. */
+export function batteryExempt() {
+  try {
+    const bridge = soundBridge();
+    if (!bridge?.isBatteryExempt) return true;
+    return Boolean(bridge.isBatteryExempt());
+  } catch {
+    return true;
+  }
+}
+
+export function askBattery() {
+  try { soundBridge()?.askBattery?.(); } catch { /* нечего показать */ }
+}
+
 /* Два канала, а не один с настройкой. Android запрещает менять звук
    у существующего канала: человек один раз выбрал — и всё, навсегда.
    Обойти это можно только новым каналом, поэтому их два, по одному

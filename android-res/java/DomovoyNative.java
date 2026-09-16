@@ -13,8 +13,10 @@ import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.PowerManager;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
@@ -86,6 +88,46 @@ public class DomovoyNative {
             deleteCopy(prefs.getString(KEY_URI, null));
             prefs.edit().remove(KEY_URI).remove(KEY_CHANNEL).apply();
             reply("{\"ok\":true,\"removed\":true}");
+        });
+    }
+
+    /** Не экономит ли телефон на нас.
+
+        Экономия заряда — главный враг напоминалки, и враг неочевидный:
+        она ничего не ломает, она просто откладывает. Свежеустановленное
+        приложение Android считает редким гостем и придерживает его
+        будильники, пока человек им не попользуется; чем дольше телефон
+        лежит без дела, тем сильнее придерживает. Снаружи это выглядит
+        как «первые напоминания с опозданием, а потом наладилось».
+
+        Проверка дешёвая и без последствий — спрашиваем при каждом
+        открытии настроек. */
+    @JavascriptInterface
+    public boolean isBatteryExempt() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+        PowerManager pm = activity.getSystemService(PowerManager.class);
+        return pm != null && pm.isIgnoringBatteryOptimizations(activity.getPackageName());
+    }
+
+    /** Попросить у системы исключение. Показывает системный вопрос
+        «разрешить приложению работать в фоне» — один тап, дальше решает
+        человек, а не мы. */
+    @JavascriptInterface
+    public void askBattery() {
+        activity.runOnUiThread(() -> {
+            try {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + activity.getPackageName()));
+                activity.startActivity(intent);
+            } catch (Exception e) {
+                /* На части прошивок такого экрана нет вовсе. Тогда ведём
+                   человека в общий список — там нужное приложение найдётся
+                   руками. Это хуже, но это лучше, чем ничего. */
+                try {
+                    activity.startActivity(
+                        new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                } catch (Exception ignored) { /* и такого нет — молчим */ }
+            }
         });
     }
 

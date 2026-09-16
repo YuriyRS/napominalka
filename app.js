@@ -1319,8 +1319,37 @@ function syncSettings() {
   // не должно задерживать соседей.
   syncInstallRow();
   syncSoundRow();
+  syncBatteryRow();
   syncRemindersRow();
 }
+
+/* Экономия заряда. Строка молчит, пока придерживать нечего, и появляется
+   ровно тогда, когда телефон действительно может задержать напоминание.
+   Это не украшение: напоминалка, которая напоминает «около того», —
+   не напоминалка, а именно так ведёт себя свежеустановленное приложение,
+   пока система считает его редким гостем. */
+const batteryRow = document.getElementById('battery-row');
+
+async function syncBatteryRow() {
+  if (!batteryRow) return;
+  const n = await nativeReady();
+  batteryRow.hidden = !n || n.batteryExempt();
+}
+
+document.getElementById('battery-btn')?.addEventListener('click', async () => {
+  const n = await nativeReady();
+  if (!n) return;
+  n.askBattery();
+  /* Проверяем не сразу, а когда человек вернётся из системных настроек:
+     ответ приходит оттуда, и до возвращения спрашивать нечего. */
+});
+
+/* Возвращение в приложение — самый надёжный момент узнать, что человек
+   ответил на системный вопрос. Отдельного события «вернулся из настроек»
+   у страницы нет, а видимость есть, и её достаточно. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') syncBatteryRow();
+});
 
 /* Звук напоминания — только в приложении. В браузере уведомление играет
    тем, что выбрано в самом телефоне для уведомлений, и приложение

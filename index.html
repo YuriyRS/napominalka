@@ -261,6 +261,19 @@
     <button class="btn btn--ghost btn--mini sound__test" type="button" id="sound-test">Проверить</button>
   </div>
 
+  <!-- Экономия заряда. Строка появляется только тогда, когда телефон
+       действительно придерживает наши будильники: показывать её всегда
+       значило бы просить разрешение на всякий случай. Решает
+       syncBatteryRow() в app.js -->
+  <div class="opt" id="battery-row" hidden>
+    <div>
+      <div class="opt__name">Не откладывать напоминания</div>
+      <div class="opt__hint">Телефон экономит заряд и может придержать
+        напоминание до получаса и больше</div>
+    </div>
+    <button class="btn btn--ghost btn--mini" type="button" id="battery-btn">Разрешить</button>
+  </div>
+
   <!-- Строка про установку. hidden в разметке, а не из скрипта: так она
        не мелькнёт до первой отрисовки. Что показывать внутри — кнопку или
        подсказку — решает syncInstallRow() в app.js, там же и почему -->
