@@ -143,6 +143,80 @@ jobs:
             || { echo "::error::в манифесте нет приёмника виджета"; exit 1; }
           echo "приёмник виджета на месте"
 
+      # Релизная сборка для магазина. Она отличается от отладочной
+      # не содержимым, а подписью: магазин принимает только сборки,
+      # подписанные настоящим ключом разработчика, и по этой подписи
+      # потом отличает обновление от подделки.
+      #
+      # Подписываем сами, а не через настройки Gradle: так виден каждый
+      # шаг, а инструменты берутся те, что уже стоят на сборочной машине.
+      # Если ключа в секретах нет, шаг молча пропускается — приложение
+      # собирается и без него, просто в магазин такое не отправить.
+      - name: Релизная сборка с подписью
+        env:
+          KEYSTORE_B64: ${{ secrets.DOMOVOY_KEYSTORE }}
+          STORE_PASS: ${{ secrets.DOMOVOY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DOMOVOY_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.DOMOVOY_KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::ключ подписи не заведён — релизной сборки не будет."
+            echo "Запустите workflow «Ключ подписи» и заведите четыре секрета."
+            exit 0
+          fi
+
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/domovoy.jks"
+
+          BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          UNALIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
+
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$UNALIGNED" "$RUNNER_TEMP/aligned.apk"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$RUNNER_TEMP/domovoy.jks" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "env:STORE_PASS" \
+            --key-pass "env:KEY_PASS" \
+            --out "$RUNNER_TEMP/domovoy-release.apk" \
+            "$RUNNER_TEMP/aligned.apk"
+
+          # Проверяем подпись тем же инструментом, который её поставил,
+          # а затем смотрим, что видит магазин: версии Android, имя пакета
+          # и разрядность. Это ровно тот список, по которому RuStore
+          # решает, принять сборку или нет.
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$RUNNER_TEMP/domovoy-release.apk" \
+            | head -4
+
+          rm -f "$RUNNER_TEMP/domovoy.jks"
+
+          mkdir -p ../out
+          cp "$RUNNER_TEMP/domovoy-release.apk" ../out/domovoy-release.apk
+          ls -lh ../out/
+
+      - name: Что видит магазин в релизной сборке
+        run: |
+          set -e
+          [ -f out/domovoy-release.apk ] || { echo "релизной сборки нет"; exit 0; }
+          BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$BUILD_TOOLS/aapt2" dump badging out/domovoy-release.apk \
+            | grep -E "^(package|sdkVersion|targetSdkVersion|native-code|application-label)" || true
+
+          # Шестьдесят четыре разряда магазин требует только у приложений
+          # с машинным кодом. У нас его нет вовсе, и это тоже надо
+          # сказать вслух — иначе проверка выглядела бы пропущенной.
+          if unzip -l out/domovoy-release.apk | grep -q 'lib/'; then
+            unzip -l out/domovoy-release.apk | grep -q 'lib/arm64-v8a' \
+              || { echo "::error::в сборке есть машинный код, но нет arm64-v8a"; exit 1; }
+            echo "машинный код: arm64-v8a на месте"
+          else
+            echo "машинного кода нет вовсе — требование о 64 разрядах выполнено по определению"
+          fi
+          sha256sum out/domovoy-release.apk
+
       - name: Переименовать
         run: |
           mkdir -p out
@@ -205,3 +279,23 @@ jobs:
           голосовые заметки, копия и восстановление, темы.
           Напоминания — при первом запуске Android спросит разрешение
           на уведомления; их можно выключить в настройках приложения."
+
+          # Релизная сборка — отдельно и отдельной ссылкой.
+          #
+          # Она не для телефона, а для магазина: подписана настоящим
+          # ключом, и ставить её поверх отладочной нельзя — система
+          # не примет сборку с другой подписью. Держим их порознь,
+          # чтобы никто не перепутал и не потерял из-за этого данные.
+          if [ -f out/domovoy-release.apk ]; then
+            VERSION="$(node -p "require('./package.json').version")"
+            gh release delete rustore --yes --cleanup-tag 2>/dev/null || true
+            gh release create rustore out/domovoy-release.apk \
+              --title "Домовой ${VERSION} — для RuStore" \
+              --notes "Сборка для загрузки в магазин: подписана релизным
+          ключом, ${VERSION} (код $(node -p "const v=require('./package.json').version.split('.').map(Number);v[0]*10000+v[1]*100+v[2]")).
+
+          Для телефона берите сборку из релиза apk: эта не встанет поверх
+          отладочной — у них разные подписи, и Android откажется."
+          else
+            echo "релизной сборки нет — в Rustore-релиз класть нечего"
+          fi

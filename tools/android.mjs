@@ -140,6 +140,38 @@ const appId = JSON.parse(
   console.log(`ресурсов виджета: ${res}`);
 }
 
+/* Номер версии. Берём его из package.json, а не из головы: магазин
+   требует, чтобы с каждой загрузкой номер рос, и промах здесь стоит
+   целой отправки на модерацию. Номер сборки считаем из версии:
+   0.1.0 → 100, 0.2.0 → 200, 1.0.0 → 10000. Растёт сам и всегда
+   в ту же сторону. */
+{
+  const pkg = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'package.json'), 'utf8'));
+  const [maj = 0, min = 0, pat = 0] = pkg.version.split('.').map((n) => parseInt(n, 10));
+  const versionCode = maj * 10000 + min * 100 + pat;
+
+  const gradleFile = path.join(ANDROID, 'app', 'build.gradle');
+  let gradle = fs.readFileSync(gradleFile, 'utf8');
+  if (!/versionCode\s+\d+/.test(gradle) || !/versionName\s+"[^"]*"/.test(gradle)) {
+    throw new Error('в app/build.gradle не нашлись versionCode/versionName — шаблон изменился');
+  }
+  gradle = gradle
+    .replace(/versionCode\s+\d+/, `versionCode ${versionCode}`)
+    .replace(/versionName\s+"[^"]*"/, `versionName "${pkg.version}"`);
+  fs.writeFileSync(gradleFile, gradle);
+
+  /* Уровни Android печатаем и проверяем: RuStore не принимает приложения
+     с targetSdk ниже 28, а узнать об этом в конце модерации обидно.
+     Числа лежат в variables.gradle — их положил Capacitor. */
+  const vars = fs.readFileSync(path.join(ANDROID, 'variables.gradle'), 'utf8');
+  const num = (name) => vars.match(new RegExp(`${name}\\s*=\\s*(\\d+)`))?.[1] || '0';
+  const target = num('targetSdkVersion');
+  const minSdk = num('minSdkVersion');
+  if (Number(target) < 28) throw new Error(`targetSdk ${target} — магазин такое не примет`);
+  console.log(`версия: ${pkg.version} (код ${versionCode}), `
+    + `targetSdk ${target}, minSdk ${minSdk}`);
+}
+
 const manifest = path.join(ANDROID, 'app', 'src', 'main', 'AndroidManifest.xml');
 let xml = fs.readFileSync(manifest, 'utf8');
 
