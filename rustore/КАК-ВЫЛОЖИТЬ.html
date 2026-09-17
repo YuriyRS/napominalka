@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Как выложить «Домового» в RuStore</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; padding: 34px 22px 90px; max-width: 760px;
+    font: 16px/1.62 -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #1A1A1C; background: #F4F2EE;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #F2F0EA; background: #08070C; }
+    .card, .note { background: rgba(255,255,255,.06) !important; }
+    .muted { color: #9B99A6 !important; }
+    code, .copy { background: rgba(255,255,255,.10) !important; color: #F2F0EA !important; }
+    th { background: rgba(255,255,255,.06) !important; }
+  }
+  h1 { font-size: 27px; line-height: 1.22; margin: 0 0 8px; letter-spacing: -.02em; }
+  h2 {
+    font-size: 19px; margin: 44px 0 10px; letter-spacing: -.01em;
+    padding-top: 18px; border-top: 1px solid rgba(128,128,128,.22);
+  }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  h3 { font-size: 16px; margin: 24px 0 6px; }
+  p, li { margin: 8px 0; }
+  ul, ol { padding-left: 22px; }
+  .muted { color: #6F6D65; font-size: 14px; }
+  .card {
+    background: #FFF; border-radius: 16px; padding: 18px 20px; margin: 18px 0;
+  }
+  .note {
+    background: #FFF; border-radius: 16px; padding: 14px 18px; margin: 16px 0;
+    border-left: 3px solid #5A28E0;
+  }
+  .step {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; margin-right: 8px; border-radius: 50%;
+    background: #5A28E0; color: #fff; font-size: 14px; font-weight: 700;
+    vertical-align: 2px;
+  }
+  code, .copy {
+    font: 14px/1.5 ui-monospace, Consolas, monospace;
+    background: #EBE8E2; border-radius: 6px; padding: 2px 6px;
+    word-break: break-all;
+  }
+  .copy { display: block; padding: 10px 12px; margin: 8px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(128,128,128,.22); vertical-align: top; }
+  th { background: #EBE8E2; font-weight: 600; }
+  a { color: #5A28E0; }
+  @media (prefers-color-scheme: dark) { a { color: #B79CFF; } }
+  .big { font-size: 17px; }
+</style>
+</head>
+<body>
+
+<h1>Как выложить «Домового» в RuStore</h1>
+<p class="muted">Пошагово, по порядку. Всё, что можно было подготовить заранее, уже готово.</p>
+
+<div class="card big">
+  <p><b>Главное в двух словах.</b> Регистрация в RuStore бесплатная, для частного
+  человека — через ВК. Паспорт и селфи сейчас не нужны: проверку личности
+  проходят только те, кто подключает платные функции, а у нас их нет.</p>
+  <p>Приложение целиком готово. Осталось завести ключ подписи, заполнить
+  карточку и отправить файл на проверку.</p>
+</div>
+
+<h2>Что уже сделано</h2>
+<table>
+  <tr><th>Что</th><th>Где лежит</th></tr>
+  <tr><td>Политика конфиденциальности</td><td>опубликована: <a href="https://yuriyrs.github.io/napominalka/privacy.html">yuriyrs.github.io/napominalka/privacy.html</a></td></tr>
+  <tr><td>Тексты карточки</td><td>папка «2. Тексты для карточки»</td></tr>
+  <tr><td>Иконка 512×512</td><td>папка «3. Иконка»</td></tr>
+  <tr><td>Шесть снимков экрана 1080×1920</td><td>папка «4. Скриншоты»</td></tr>
+  <tr><td>Ключ подписи</td><td>папка «6. Ключ подписи»</td></tr>
+  <tr><td>Сборка приложения</td><td>собирается сама после шага 2</td></tr>
+</table>
+
+<h2><span class="step">1</span> Завести секреты</h2>
+
+<p>Откройте папку <b>«6. Ключ подписи»</b>. В ней три файла: сам ключ,
+он же строкой, и записка с паролями. Дальше — в браузере, на GitHub:</p>
+
+<ol>
+  <li>Репозиторий → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b>.</li>
+  <li>Кнопка <b>New repository secret</b>. Заведите четыре секрета —
+     имя слева, значение из файла «ПАРОЛИ.txt» справа:</li>
+</ol>
+
+<table>
+  <tr><th>Имя секрета</th><th>Что в него</th></tr>
+  <tr><td><code>DOMOVOY_KEYSTORE</code></td><td>всё содержимое файла <code>ключ-строкой.txt</code></td></tr>
+  <tr><td><code>DOMOVOY_STORE_PASSWORD</code></td><td>пароль хранилища</td></tr>
+  <tr><td><code>DOMOVOY_KEY_ALIAS</code></td><td><code>domovoy</code></td></tr>
+  <tr><td><code>DOMOVOY_KEY_PASSWORD</code></td><td>пароль ключа (тот же самый)</td></tr>
+</table>
+
+<div class="note">
+  <b>Почему это важно.</b> Ключ — документ, а не настройка. Им приложение
+  подписывается, и по подписи система отличает обновление от подделки.
+  Другой ключ означает другое приложение: поставить обновление поверх
+  старого с ним нельзя. Поэтому файл ключа надо сохранить в двух местах,
+  а не только на одном компьютере.
+</div>
+
+<h2><span class="step">2</span> Собрать подписанный файл</h2>
+
+<p>После шага 1 любая сборка начнёт делать <b>ещё и подписанную версию</b>.
+Чтобы не ждать, запустите её руками: <b>Actions</b> → «APK» → <b>Run workflow</b>.</p>
+
+<p>Через пять минут файл будет здесь:</p>
+<p class="copy">https://github.com/YuriyRS/napominalka/releases/download/rustore/domovoy-release.apk</p>
+
+<p class="muted">В отчёте сборки при этом печатается отпечаток подписи, имя
+пакета и версии Android — то же самое, что будет проверять магазин.
+Если что-то не так, это будет видно сразу.</p>
+
+<h2><span class="step">3</span> Завести аккаунт</h2>
+
+<ol>
+  <li>Откройте <a href="https://www.rustore.ru/developer">rustore.ru/developer</a>
+      и нажмите «Создать аккаунт».</li>
+  <li>Тип — <b>Физическое лицо</b>. Тип выбирается один раз и потом не меняется.</li>
+  <li>Войдите через <b>ВК</b> — подойдёт номер телефона или Госуслуги.</li>
+  <li>Заполните: страна, <b>ФИО</b> (его увидят пользователи — так у всех),
+      телефон и почту.</li>
+  <li>Примите соглашения.</li>
+</ol>
+
+<p class="muted">Регистрация бесплатная и происходит сразу. Паспорт
+и проверка личности сейчас не требуются — они нужны только для выплат,
+а нам платить не за что.</p>
+
+<h2><span class="step">4</span> Создать приложение</h2>
+
+<p>В консоли: <b>Приложения → Добавить приложение</b>. Тексты копируйте
+из папки «2. Тексты для карточки» — они уже сверены с правилами магазина.
+Всё, что нужно вписать, и куда именно:</p>
+
+<table>
+  <tr><th>Поле в консоли</th><th>Что вписать</th></tr>
+  <tr><td>Название</td><td>файл «Название.txt»</td></tr>
+  <tr><td>Имя пакета</td><td><code>ru.domovoy.app</code> — вшито в приложение, не меняется</td></tr>
+  <tr><td>Краткое описание</td><td>файл «Краткое описание.txt»</td></tr>
+  <tr><td>Полное описание</td><td>файл «Полное описание.txt»</td></tr>
+  <tr><td>Что нового</td><td>файл «Что нового.txt»</td></tr>
+  <tr><td>Категория</td><td>Продуктивность</td></tr>
+  <tr><td>Возрастной рейтинг</td><td>0+</td></tr>
+  <tr><td>Цена</td><td>бесплатно</td></tr>
+  <tr><td>Реклама</td><td>нет</td></tr>
+  <tr><td>Встроенные покупки</td><td>нет</td></tr>
+  <tr><td>Политика конфиденциальности</td><td>ссылка из файла «Настройки и ссылки.txt»</td></tr>
+  <tr><td>Иконка</td><td>файл из папки «3. Иконка»</td></tr>
+  <tr><td>Скриншоты</td><td>все шесть из папки «4. Скриншоты»</td></tr>
+</table>
+
+<h2><span class="step">5</span> Загрузить сборку</h2>
+
+<p>Раздел <b>Версии → Загрузить версию</b>, файл, скачанный на шаге 2.</p>
+<p>Магазин проверит его сам: подпись, имя пакета, версии Android,
+разрядность. Если что-то не так — скажет сразу, до модерации.</p>
+
+<div class="note">
+  <b>Не перепутайте два файла.</b> Для магазина — тот, что из релиза
+  <code>rustore</code> (подписанный). Тот, что из релиза <code>apk</code>,
+  для телефона: он подписан отладочным ключом, и магазин его не примет.
+</div>
+
+<h2><span class="step">6</span> Отправить на модерацию</h2>
+
+<p>Проверьте карточку своими глазами — так, как её увидит человек, —
+и отправляйте. Проверка занимает от нескольких часов до трёх рабочих дней.</p>
+
+<p>Если откажут, придёт причина. Чаще всего это битая ссылка на политику,
+мало снимков, расхождение описания с приложением или что-то не по-русски
+в карточке. Пришлите формулировку — поправлю.</p>
+
+<h2>Если работаете с VPS</h2>
+
+<p>Ничего особенного не нужно: всё, кроме ключа, лежит в репозитории.
+На сервере достаточно один раз сделать</p>
+<p class="copy">git clone https://github.com/YuriyRS/napominalka.git</p>
+<p>— и в папке <code>rustore/</code> будут те же тексты, иконка и снимки.
+Сборку скачивать по ссылке из шага 2: у сервера интернет быстрый,
+это займёт секунды. Ключ на сервер переносить не нужно вовсе —
+он живёт в секретах GitHub, и сборка берёт его оттуда.</p>
+
+<h2>Что дальше</h2>
+
+<h3>Обновления</h3>
+<p>Правка в проекте → версия в <code>package.json</code> поднимается
+(0.1.0 → 0.1.1) → сборка сама соберёт, подпишет и выложит новый файл.
+Останется загрузить его в консоль новой версией. Номер сборки считается
+из версии сам: 0.1.0 — это 100, 0.1.1 — 101. Магазин требует, чтобы он
+рос, и он растёт.</p>
+
+<h3>Отпечаток ключа</h3>
+<p>В записке с паролями есть отпечаток SHA-256. Он понадобится, когда
+Гугл введёт обязательную регистрацию имени пакета — тогда разработчик
+подтверждает, что имя <code>ru.domovoy.app</code> и ключ принадлежат ему.
+Для России срок ещё не наступил, так что спешить некуда, но записку
+лучше не терять.</p>
+
+<h3>Чего я сделать не могу</h3>
+<p>Завести аккаунт и отправить приложение на проверку: там нужны ваши
+документы и ваше имя. Всё остальное готово, и если модерация что-то
+попросит поправить — несите сюда.</p>
+
+</body>
+</html>

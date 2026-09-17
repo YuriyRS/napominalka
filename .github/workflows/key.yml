@@ -37,21 +37,22 @@ jobs:
           ALIAS=domovoy
 
           keytool -genkeypair \
-            -keystore domovoy.jks \
+            -keystore domovoy.p12 \
+            -storetype PKCS12 \
             -alias "$ALIAS" \
             -keyalg RSA -keysize 4096 -validity 10000 \
             -storepass "$PASSWORD" -keypass "$PASSWORD" \
             -dname "CN=Domovoy, O=Domovoy, C=RU"
 
-          base64 -w0 domovoy.jks > keystore.b64
+          base64 -w0 domovoy.p12 > keystore.b64
 
-          SHA="$(keytool -list -v -keystore domovoy.jks -storepass "$PASSWORD" \
-                 | grep 'SHA256:' | head -1 | sed 's/.*SHA256: //')"
+          SHA="$(keytool -list -v -keystore domovoy.p12 -storetype PKCS12 \
+                 -storepass "$PASSWORD" | grep 'SHA256:' | head -1 | sed 's/.*SHA256: //')"
 
           cat > ПРОЧТИ-МЕНЯ.txt <<TXT
           Ключ подписи приложения «Домовой».
 
-          Файл ключа:      domovoy.jks
+          Файл ключа:      domovoy.p12
           Он же строкой:   keystore.b64  (эту строку вставлять в секрет)
 
           Пароль хранилища: $PASSWORD
@@ -94,7 +95,7 @@ jobs:
         with:
           name: domovoy-key
           path: |
-            domovoy.jks
+            domovoy.p12
             keystore.b64
             ПРОЧТИ-МЕНЯ.txt
           retention-days: 7

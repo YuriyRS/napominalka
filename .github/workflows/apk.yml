@@ -170,14 +170,25 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/domovoy.jks"
+          # Ключ хранится в секрете строкой base64: так его можно
+          # вставить в поле секрета, не разбираясь с бинарными файлами.
+          # Формат — PKCS#12, а не JKS: его понимают и openssl, и Java,
+          # то есть ключ можно сделать чем угодно и проверить чем угодно.
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/domovoy.p12"
+
+          # Проверяем сам ключ до сборки. Если файл побился при пересылке
+          # или пароль не тот — узнать об этом надо здесь, а не через
+          # десять минут на шаге подписи, где ошибка выглядит страшнее.
+          keytool -list -keystore "$RUNNER_TEMP/domovoy.p12" -storetype PKCS12 \
+            -storepass "$STORE_PASS" | tail -3
 
           BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
           UNALIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
 
           "$BUILD_TOOLS/zipalign" -f -p 4 "$UNALIGNED" "$RUNNER_TEMP/aligned.apk"
           "$BUILD_TOOLS/apksigner" sign \
-            --ks "$RUNNER_TEMP/domovoy.jks" \
+            --ks "$RUNNER_TEMP/domovoy.p12" \
+            --ks-type PKCS12 \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass "env:STORE_PASS" \
             --key-pass "env:KEY_PASS" \
@@ -191,7 +202,7 @@ jobs:
           "$BUILD_TOOLS/apksigner" verify --print-certs "$RUNNER_TEMP/domovoy-release.apk" \
             | head -4
 
-          rm -f "$RUNNER_TEMP/domovoy.jks"
+          rm -f "$RUNNER_TEMP/domovoy.p12"
 
           mkdir -p ../out
           cp "$RUNNER_TEMP/domovoy-release.apk" ../out/domovoy-release.apk
