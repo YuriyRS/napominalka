@@ -7,6 +7,21 @@
 
 name: APK
 
+# Один запуск за раз.
+
+# GitHub на каждый push запускает сборку дважды — сам, без нашего участия
+# (в списке это видно как два запуска с одинаковым коммитом и разными
+# событиями). Два запуска наперегонки делали одно и то же: снимали релиз
+# и клали новый. Тот, что успевал вторым, снимал релиз, который положил
+# первый, — и ссылка на файл на минуту пропадала. Ровно в эту минуту
+# за ней мог прийти человек.
+
+# Здесь запуски выстраиваются в очередь: второй ждёт, пока кончится
+# первый, и делает всё заново — медленнее, зато без гонки.
+concurrency:
+  group: apk
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]
@@ -277,8 +292,16 @@ jobs:
           https://github.com/YuriyRS/napominalka/releases/download/apk-prev/domovoy.apk"
           fi
 
-          gh release delete apk --yes --cleanup-tag 2>/dev/null || true
-          gh release create apk out/domovoy.apk \
+          # Релиз не снимаем, а обновляем на месте.
+          #
+          # Раньше было «снести и положить заново», и это оказалось хуже,
+          # чем казалось: между сносом и укладкой ссылка мертва, а за ней
+          # в этот момент может прийти человек. Теперь файл подменяется
+          # одной операцией, а ссылка живёт непрерывно.
+          gh release view apk >/dev/null 2>&1 || gh release create apk \
+            --title "Домовой — свежая сборка" --notes "Первая сборка"
+
+          gh release edit apk \
             --title "Домовой — свежая сборка" \
             --notes "Собрано из коммита ${GITHUB_SHA::7}.
 
@@ -291,6 +314,8 @@ jobs:
           Напоминания — при первом запуске Android спросит разрешение
           на уведомления; их можно выключить в настройках приложения."
 
+          gh release upload apk out/domovoy.apk --clobber
+
           # Релизная сборка — отдельно и отдельной ссылкой.
           #
           # Она не для телефона, а для магазина: подписана настоящим
@@ -299,14 +324,18 @@ jobs:
           # чтобы никто не перепутал и не потерял из-за этого данные.
           if [ -f out/domovoy-release.apk ]; then
             VERSION="$(node -p "require('./package.json').version")"
-            gh release delete rustore --yes --cleanup-tag 2>/dev/null || true
-            gh release create rustore out/domovoy-release.apk \
+            gh release view rustore >/dev/null 2>&1 || gh release create rustore \
+              --title "Домовой ${VERSION} — для RuStore" --notes "Первая сборка"
+
+            gh release edit rustore \
               --title "Домовой ${VERSION} — для RuStore" \
               --notes "Сборка для загрузки в магазин: подписана релизным
           ключом, ${VERSION} (код $(node -p "const v=require('./package.json').version.split('.').map(Number);v[0]*10000+v[1]*100+v[2]")).
 
           Для телефона берите сборку из релиза apk: эта не встанет поверх
           отладочной — у них разные подписи, и Android откажется."
+
+            gh release upload rustore out/domovoy-release.apk --clobber
           else
             echo "релизной сборки нет — в Rustore-релиз класть нечего"
           fi
