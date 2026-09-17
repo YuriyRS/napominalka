@@ -1,4 +1,4 @@
-package ru.domovoy.app;
+package ru.domovoy.reminder;
 
 import android.content.Intent;
 import android.os.Bundle;
